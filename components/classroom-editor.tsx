@@ -113,15 +113,16 @@ export function ClassroomEditor({
   const materialObjects = rootObjects.filter(isMaterialObject);
   const minimizedMaterials = materialObjects.filter((object) => object.data.displayState === "minimized");
   const fullscreenMaterial = fullscreenMaterialId ? materialObjects.find((object) => object.id === fullscreenMaterialId) : null;
-  const fullscreenBounds = useMemo(
-    () => ({
+  const fullscreenBounds = useMemo(() => {
+    const visibleBounds = {
       x: -stagePosition.x / viewportScale,
       y: -stagePosition.y / viewportScale,
       width: viewportSize.width / viewportScale,
       height: viewportSize.height / viewportScale
-    }),
-    [stagePosition.x, stagePosition.y, viewportScale, viewportSize.height, viewportSize.width]
-  );
+    };
+
+    return fullscreenMaterial ? getContainedMaterialBounds(visibleBounds, fullscreenMaterial, 48 / viewportScale) : visibleBounds;
+  }, [fullscreenMaterial, stagePosition.x, stagePosition.y, viewportScale, viewportSize.height, viewportSize.width]);
 
   useEffect(() => {
     if (!sortedBoards.length) return;
@@ -630,6 +631,7 @@ export function ClassroomEditor({
 
   function getMaterialTargetAtPoint(point: { x: number; y: number }): MaterialTarget | null {
     if (fullscreenMaterial) {
+      if (!isPointInsideBounds(point, fullscreenBounds)) return null;
       return {
         id: fullscreenMaterial.id,
         pageNumber: fullscreenMaterial.type === "pdf" ? Number(fullscreenMaterial.data.page ?? 1) : null,
@@ -951,6 +953,7 @@ export function ClassroomEditor({
                           onChange={(patch) => patchObject(object.id, patch)}
                           onTextEdit={() => setEditingTextId(object.id)}
                           onPdfPageChange={() => undefined}
+                          onMaterialSize={() => undefined}
                         />
                       ];
                     }
@@ -984,13 +987,24 @@ export function ClassroomEditor({
                         }}
                         onTextEdit={() => undefined}
                         onPdfPageChange={(page, pageCount) => {
-                          patchObject(object.id, {
-                            data: {
-                              ...object.data,
-                              page,
-                              pageCount
-                            }
-                          });
+                          patchObject(
+                            object.id,
+                            {
+                              data: {
+                                ...object.data,
+                                page,
+                                pageCount
+                              }
+                            },
+                            false
+                          );
+                        }}
+                        onMaterialSize={(size) => {
+                          const nextData =
+                            object.type === "pdf"
+                              ? { ...object.data, pageWidth: size.width, pageHeight: size.height }
+                              : { ...object.data, naturalWidth: size.width, naturalHeight: size.height };
+                          patchObject(object.id, { data: nextData }, false);
                         }}
                       />,
                       ...annotations.map((annotation) => (
@@ -1004,6 +1018,7 @@ export function ClassroomEditor({
                           onChange={(patch) => patchObject(annotation.id, boardPatchToMaterialPatch(patch, materialBounds))}
                           onTextEdit={() => setEditingTextId(annotation.id)}
                           onPdfPageChange={() => undefined}
+                          onMaterialSize={() => undefined}
                         />
                       ))
                     ];
@@ -1433,6 +1448,7 @@ function WhiteboardNode({
   onChange,
   onTextEdit,
   onPdfPageChange,
+  onMaterialSize,
   onHover
 }: {
   object: WhiteboardObject;
@@ -1441,6 +1457,7 @@ function WhiteboardNode({
   onChange: (patch: Partial<WhiteboardObject>) => void;
   onTextEdit: () => void;
   onPdfPageChange: (page: number, pageCount?: number) => void;
+  onMaterialSize: (size: { width: number; height: number }) => void;
   onHover?: (hovered: boolean) => void;
 }) {
   const common = {
@@ -1483,6 +1500,7 @@ function WhiteboardNode({
         object={object}
         selected={selected}
         url={String(object.data.url ?? "")}
+        onImageReady={onMaterialSize}
       />
     );
   }
@@ -1500,6 +1518,7 @@ function WhiteboardNode({
         url={String(object.data.url ?? "")}
         page={Number(object.data.page ?? 1)}
         onPageReady={onPdfPageChange}
+        onPageSize={onMaterialSize}
       />
     );
   }
@@ -1632,14 +1651,25 @@ function MaterialImageNode({
   common,
   object,
   selected,
-  url
+  url,
+  onImageReady
 }: {
   common: Record<string, unknown>;
   object: WhiteboardObject;
   selected: boolean;
   url: string;
+  onImageReady: (size: { width: number; height: number }) => void;
 }) {
   const image = useCanvasImage(url);
+
+  useEffect(() => {
+    if (!image) return;
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) return;
+    if (Number(object.data.naturalWidth) === width && Number(object.data.naturalHeight) === height) return;
+    onImageReady({ width, height });
+  }, [image, object.data.naturalHeight, object.data.naturalWidth, onImageReady]);
 
   return (
     <>
@@ -1698,7 +1728,8 @@ function PdfNode({
   selected,
   url,
   page,
-  onPageReady
+  onPageReady,
+  onPageSize
 }: {
   common: Record<string, unknown>;
   object: WhiteboardObject;
@@ -1706,14 +1737,21 @@ function PdfNode({
   url: string;
   page: number;
   onPageReady: (page: number, pageCount?: number) => void;
+  onPageSize: (size: { width: number; height: number }) => void;
 }) {
-  const { image, pageCount } = usePdfPageImage(url, page);
+  const { image, pageCount, pageSize } = usePdfPageImage(url, page);
 
   useEffect(() => {
     if (pageCount && pageCount !== Number(object.data.pageCount ?? 0)) {
       onPageReady(page, pageCount);
     }
   }, [object.data.pageCount, onPageReady, page, pageCount]);
+
+  useEffect(() => {
+    if (!pageSize) return;
+    if (Number(object.data.pageWidth) === pageSize.width && Number(object.data.pageHeight) === pageSize.height) return;
+    onPageSize(pageSize);
+  }, [object.data.pageHeight, object.data.pageWidth, onPageSize, pageSize]);
 
   return (
     <>
@@ -1811,6 +1849,7 @@ function useCanvasImage(url: string) {
 function usePdfPageImage(url: string, page: number) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [pageCount, setPageCount] = useState<number | null>(null);
+  const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1818,6 +1857,7 @@ function usePdfPageImage(url: string, page: number) {
     async function renderPdfPage() {
       if (!url) {
         setImage(null);
+        setPageSize(null);
         return;
       }
 
@@ -1838,6 +1878,7 @@ function usePdfPageImage(url: string, page: number) {
 
       if (cancelled) return;
       setPageCount(pdf.numPages);
+      setPageSize({ width: viewport.width, height: viewport.height });
 
       const nextImage = new window.Image();
       nextImage.onload = () => {
@@ -1855,7 +1896,7 @@ function usePdfPageImage(url: string, page: number) {
     };
   }, [page, url]);
 
-  return { image, pageCount };
+  return { image, pageCount, pageSize };
 }
 
 function InlineTextEditor({
@@ -1933,6 +1974,44 @@ function getMaterialBounds(material: WhiteboardObject) {
     width: material.width,
     height: material.height
   };
+}
+
+function getContainedMaterialBounds(
+  availableBounds: { x: number; y: number; width: number; height: number },
+  material: WhiteboardObject,
+  margin: number
+) {
+  const availableWidth = Math.max(1, availableBounds.width - margin * 2);
+  const availableHeight = Math.max(1, availableBounds.height - margin * 2);
+  const sourceSize = getMaterialSourceSize(material);
+  const scale = Math.min(availableWidth / sourceSize.width, availableHeight / sourceSize.height);
+  const width = sourceSize.width * scale;
+  const height = sourceSize.height * scale;
+
+  return {
+    x: availableBounds.x + (availableBounds.width - width) / 2,
+    y: availableBounds.y + (availableBounds.height - height) / 2,
+    width,
+    height
+  };
+}
+
+function getMaterialSourceSize(material: WhiteboardObject) {
+  const width =
+    material.type === "pdf"
+      ? Number(material.data.pageWidth ?? material.width)
+      : Number(material.data.naturalWidth ?? material.width);
+  const height =
+    material.type === "pdf"
+      ? Number(material.data.pageHeight ?? material.height)
+      : Number(material.data.naturalHeight ?? material.height);
+
+  if (width > 0 && height > 0) return { width, height };
+  return { width: Math.max(1, material.width), height: Math.max(1, material.height) };
+}
+
+function isPointInsideBounds(point: { x: number; y: number }, bounds: { x: number; y: number; width: number; height: number }) {
+  return point.x >= bounds.x && point.x <= bounds.x + bounds.width && point.y >= bounds.y && point.y <= bounds.y + bounds.height;
 }
 
 function toRelativePoint(x: number, y: number, bounds: { x: number; y: number; width: number; height: number }) {
