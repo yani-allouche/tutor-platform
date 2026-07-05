@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { Lesson, LessonSummary, Student, StudentOption, StudentSummary } from "@/lib/types";
 
@@ -18,7 +19,28 @@ export async function getCurrentTutorId() {
   } = await supabase.auth.getUser();
 
   if (!user) throw new Error("Not authenticated");
+  await ensureTutorProfile(user);
   return user.id;
+}
+
+export async function ensureTutorProfile(user: User) {
+  const supabase = await createClient();
+  const firstName = typeof user.user_metadata?.first_name === "string" ? user.user_metadata.first_name : "";
+  const lastName = typeof user.user_metadata?.last_name === "string" ? user.user_metadata.last_name : "";
+  const timezone = typeof user.user_metadata?.timezone === "string" ? user.user_metadata.timezone : "UTC";
+
+  const { error } = await supabase.from("tutors").upsert(
+    {
+      id: user.id,
+      email: user.email ?? "",
+      first_name: firstName,
+      last_name: lastName,
+      timezone
+    },
+    { onConflict: "id" }
+  );
+
+  if (error) throw new Error(error.message);
 }
 
 export async function getStudents(): Promise<StudentSummary[]> {

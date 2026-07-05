@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { ensureTutorProfile } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -9,6 +10,7 @@ export default async function ProtectedLayout({ children }: { children: React.Re
   } = await supabase.auth.getUser();
 
   if (!user) redirect("/login");
+  await ensureTutorProfile(user);
 
   const { data: tutor } = await supabase
     .from("tutors")
