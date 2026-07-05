@@ -19,7 +19,7 @@ import {
   Home,
   Image as ImageIcon,
   Maximize2,
-  Minimize2,
+  Minus,
   MousePointer2,
   Pencil,
   Plus,
@@ -34,7 +34,6 @@ import {
   ZoomOut
 } from "lucide-react";
 import type { Board, LessonSummary, WhiteboardObject, WhiteboardObjectType } from "@/lib/types";
-import { formatDate } from "@/lib/format";
 import { createBoard, deleteBoard, duplicateBoard, moveBoard, renameBoard } from "@/app/(app)/lessons/[id]/boards/actions";
 
 type Tool = "select" | "hand" | "text" | "pencil" | "highlighter" | "shape" | "arrow" | "delete";
@@ -93,7 +92,9 @@ export function ClassroomEditor({
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawingTarget, setDrawingTarget] = useState<MaterialTarget | null>(null);
   const [hoveredMaterialId, setHoveredMaterialId] = useState<string | null>(null);
+  const [controlsHoveredMaterialId, setControlsHoveredMaterialId] = useState<string | null>(null);
   const [fullscreenMaterialId, setFullscreenMaterialId] = useState<string | null>(null);
+  const [boardsCollapsed, setBoardsCollapsed] = useState(false);
   const [viewportSize, setViewportSize] = useState(DEFAULT_VIEWPORT);
   const [viewportScale, setViewportScale] = useState(1);
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
@@ -106,9 +107,11 @@ export function ClassroomEditor({
   const viewportRef = useRef<HTMLDivElement>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const materialHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextSave = useRef(false);
   const rootObjects = objects.filter((object) => !object.parent_material_id);
   const materialObjects = rootObjects.filter(isMaterialObject);
+  const minimizedMaterials = materialObjects.filter((object) => object.data.displayState === "minimized");
   const fullscreenMaterial = fullscreenMaterialId ? materialObjects.find((object) => object.id === fullscreenMaterialId) : null;
   const fullscreenBounds = useMemo(
     () => ({
@@ -663,6 +666,18 @@ export function ClassroomEditor({
     setFullscreenMaterialId((current) => (current === id ? null : current));
   }
 
+  function setMaterialHover(id: string, hovered: boolean) {
+    if (materialHoverTimer.current) clearTimeout(materialHoverTimer.current);
+    if (hovered) {
+      setHoveredMaterialId(id);
+      return;
+    }
+
+    materialHoverTimer.current = setTimeout(() => {
+      setHoveredMaterialId((current) => (current === id ? null : current));
+    }, 120);
+  }
+
   function getEditingTextObject() {
     const object = objects.find((item) => item.id === editingTextId);
     if (!object) return undefined;
@@ -680,46 +695,22 @@ export function ClassroomEditor({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
         <div className="flex min-w-0 items-center gap-3">
           <select
-            className="field min-w-[260px] max-w-[min(520px,calc(100vw-8rem))] py-2 text-sm font-medium"
+            className="field min-w-[180px] max-w-[min(260px,calc(100vw-6rem))] py-2 text-sm font-medium"
             value={lesson.id}
             onChange={(event) => void openLesson(event.target.value)}
             aria-label="Open another lesson whiteboard"
           >
             {lessonOptions.map((option) => (
               <option key={option.id} value={option.id}>
-                {option.student_name ? `${option.student_name} - ` : ""}
-                {option.title} - {formatDate(option.lesson_date)}
+                {formatLessonDropdownDate(option.lesson_date)}
               </option>
             ))}
           </select>
-          <div className="hidden min-w-0 sm:block">
-            <p className="truncate text-sm font-semibold text-ink">{lesson.student_name ?? "Unlinked lesson"}</p>
-            <p className="text-xs text-slate-500">{formatDate(lesson.lesson_date)}</p>
-          </div>
         </div>
         <div className="flex items-center gap-3">
-          <label className="btn-secondary cursor-pointer">
-            <input
-              className="sr-only"
-              type="file"
-              accept="application/pdf,image/png,image/jpeg"
-              disabled={isUploading}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) void uploadMaterial(file);
-              }}
-            />
-            {isUploading ? <FileText size={16} aria-hidden="true" /> : <ImageIcon size={16} aria-hidden="true" />}
-            {isUploading ? "Uploading" : "Upload"}
-          </label>
           <span className="text-sm text-slate-500">
             {saveStatus === "saving" ? "Saving..." : saveStatus === "error" ? "Save failed" : "Saved"}
           </span>
-          <button className="btn-secondary" onClick={exportBoardImage} title="Export visible content as an image">
-            <Download size={16} aria-hidden="true" />
-            Export
-          </button>
           <button className="rounded-md p-2 text-slate-600 hover:bg-slate-100" onClick={() => void closeWhiteboard()} aria-label="Close whiteboard" title="Close">
             <X size={20} aria-hidden="true" />
           </button>
@@ -727,19 +718,25 @@ export function ClassroomEditor({
         {uploadError ? <p className="basis-full text-sm text-coral">{uploadError}</p> : null}
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[260px_1fr]">
+      <div className={`grid min-h-0 flex-1 grid-cols-1 ${boardsCollapsed ? "" : "lg:grid-cols-[260px_1fr]"}`}>
+        {!boardsCollapsed ? (
         <aside className="overflow-y-auto border-b border-slate-200 bg-slate-50 p-3 lg:border-b-0 lg:border-r">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-ink">Boards</h2>
-            <form
-              action={() => {
-                runBoardAction(() => createBoard(lesson.id));
-              }}
-            >
-              <button className="rounded-md p-2 text-slate-600 hover:bg-white" aria-label="Add board" disabled={isPending}>
-                <Plus size={16} aria-hidden="true" />
+            <div className="flex items-center gap-1">
+              <form
+                action={() => {
+                  runBoardAction(() => createBoard(lesson.id));
+                }}
+              >
+                <button className="rounded-md p-2 text-slate-600 hover:bg-white" aria-label="Add board" disabled={isPending}>
+                  <Plus size={16} aria-hidden="true" />
+                </button>
+              </form>
+              <button className="rounded-md p-2 text-slate-600 hover:bg-white" onClick={() => setBoardsCollapsed(true)} aria-label="Collapse boards" title="Collapse boards">
+                <ChevronLeft size={16} aria-hidden="true" />
               </button>
-            </form>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -811,6 +808,7 @@ export function ClassroomEditor({
             ))}
           </div>
         </aside>
+        ) : null}
 
         <section className="grid min-h-0 grid-cols-[56px_1fr] bg-slate-100">
           <Toolbar
@@ -828,9 +826,23 @@ export function ClassroomEditor({
             clearBoard={clearBoard}
             canUndo={history.length > 0}
             canRedo={future.length > 0}
+            isUploading={isUploading}
+            uploadMaterial={uploadMaterial}
+            exportBoardImage={exportBoardImage}
           />
 
           <div className="relative h-full min-w-0 overflow-hidden">
+            {boardsCollapsed ? (
+              <button
+                className="absolute left-4 top-20 z-20 flex items-center gap-1 rounded-md border border-slate-200 bg-white/95 px-2 py-1.5 text-sm font-medium text-slate-600 shadow-sm hover:bg-slate-50"
+                onClick={() => setBoardsCollapsed(false)}
+                aria-label="Open boards"
+                title="Open boards"
+              >
+                <ChevronRight size={16} aria-hidden="true" />
+                Boards
+              </button>
+            ) : null}
             <div className="absolute left-4 top-4 z-20">
               <ToolOptions
                 tool={tool}
@@ -926,7 +938,7 @@ export function ClassroomEditor({
               >
                 <Layer>
                   <Rect name="canvas-background" width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="#ffffff" />
-                  {(fullscreenMaterial ? [fullscreenMaterial] : rootObjects).flatMap((object) => {
+                  {(fullscreenMaterial ? [fullscreenMaterial] : rootObjects.filter((object) => object.data.displayState !== "minimized")).flatMap((object) => {
                     if (!isMaterialObject(object)) {
                       return [
                         <WhiteboardNode
@@ -966,7 +978,7 @@ export function ClassroomEditor({
                           }
                           setSelectedId(object.id);
                         }}
-                        onHover={(hovered) => setHoveredMaterialId(hovered ? object.id : null)}
+                        onHover={(hovered) => setMaterialHover(object.id, hovered)}
                         onChange={(patch) => {
                           if (!fullscreenMaterial) patchObject(object.id, patch);
                         }}
@@ -1012,8 +1024,14 @@ export function ClassroomEditor({
                     <MaterialControls
                       key={object.id}
                       object={objectToViewport(object)}
-                      visible={selectedId === object.id || hoveredMaterialId === object.id}
-                      onMinimize={() => patchMaterialData(object.id, { displayState: "minimized" })}
+                      visible={selectedId === object.id || hoveredMaterialId === object.id || controlsHoveredMaterialId === object.id}
+                      onHover={(hovered) => setControlsHoveredMaterialId(hovered ? object.id : null)}
+                      onMinimize={() => {
+                        patchMaterialData(object.id, { displayState: "minimized" });
+                        setSelectedId(null);
+                        setHoveredMaterialId(null);
+                        setControlsHoveredMaterialId(null);
+                      }}
                       onFullscreen={() => {
                         patchMaterialData(object.id, { displayState: "normal" });
                         setFullscreenMaterialId(object.id);
@@ -1027,9 +1045,13 @@ export function ClassroomEditor({
                       object={objectToViewport({ ...fullscreenMaterial, ...fullscreenBounds })}
                       visible
                       fullscreen
+                      onHover={(hovered) => setControlsHoveredMaterialId(hovered ? fullscreenMaterial.id : null)}
                       onMinimize={() => {
                         setFullscreenMaterialId(null);
                         patchMaterialData(fullscreenMaterial.id, { displayState: "minimized" });
+                        setSelectedId(null);
+                        setHoveredMaterialId(null);
+                        setControlsHoveredMaterialId(null);
                       }}
                       onFullscreen={() => setFullscreenMaterialId(null)}
                       onClose={() => removeMaterial(fullscreenMaterial.id)}
@@ -1080,6 +1102,21 @@ export function ClassroomEditor({
                   }}
                 />
               ) : null}
+              {minimizedMaterials.length ? (
+                <div className="absolute bottom-4 left-1/2 z-20 flex max-w-[min(720px,calc(100%-7rem))] -translate-x-1/2 gap-2 overflow-x-auto rounded-md border border-slate-200 bg-white/95 p-2 shadow-sm">
+                  {minimizedMaterials.map((object) => (
+                    <button
+                      key={object.id}
+                      className="flex max-w-56 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                      onClick={() => patchMaterialData(object.id, { displayState: "normal" })}
+                      title={String(object.data.filename ?? (object.type === "pdf" ? "PDF" : "Image"))}
+                    >
+                      {object.type === "pdf" ? <FileText size={16} aria-hidden="true" /> : <ImageIcon size={16} aria-hidden="true" />}
+                      <span className="truncate">{String(object.data.filename ?? (object.type === "pdf" ? "PDF" : "Image"))}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
         </section>
@@ -1095,7 +1132,10 @@ function Toolbar({
   redo,
   clearBoard,
   canUndo,
-  canRedo
+  canRedo,
+  isUploading,
+  uploadMaterial,
+  exportBoardImage
 }: {
   tool: Tool;
   setTool: (tool: Tool) => void;
@@ -1104,6 +1144,9 @@ function Toolbar({
   clearBoard: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  isUploading: boolean;
+  uploadMaterial: (file: File) => Promise<void>;
+  exportBoardImage: () => void;
 }) {
   const tools = [
     { id: "select", label: "Select", icon: MousePointer2 },
@@ -1133,6 +1176,30 @@ function Toolbar({
         );
       })}
       <div className="my-1 h-px w-8 bg-slate-200" />
+      <label
+        className={`rounded-md p-2 ${
+          isUploading ? "cursor-not-allowed text-slate-300" : "cursor-pointer text-slate-600 hover:bg-slate-100"
+        }`}
+        aria-label="Upload material"
+        title={isUploading ? "Uploading" : "Upload"}
+      >
+        <input
+          className="sr-only"
+          type="file"
+          accept="application/pdf,image/png,image/jpeg"
+          disabled={isUploading}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) void uploadMaterial(file);
+          }}
+        />
+        {isUploading ? <FileText size={19} aria-hidden="true" /> : <ImageIcon size={19} aria-hidden="true" />}
+      </label>
+      <button className="rounded-md p-2 text-slate-600 hover:bg-slate-100" onClick={exportBoardImage} aria-label="Export board" title="Export">
+        <Download size={19} aria-hidden="true" />
+      </button>
+      <div className="my-1 h-px w-8 bg-slate-200" />
       <button className="rounded-md p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-40" onClick={undo} disabled={!canUndo} aria-label="Undo" title="Undo">
         <Undo2 size={19} aria-hidden="true" />
       </button>
@@ -1150,6 +1217,7 @@ function MaterialControls({
   object,
   visible,
   fullscreen = false,
+  onHover,
   onMinimize,
   onFullscreen,
   onClose
@@ -1157,6 +1225,7 @@ function MaterialControls({
   object: WhiteboardObject;
   visible: boolean;
   fullscreen?: boolean;
+  onHover: (hovered: boolean) => void;
   onMinimize: () => void;
   onFullscreen: () => void;
   onClose: () => void;
@@ -1166,13 +1235,15 @@ function MaterialControls({
   return (
     <div
       className="absolute flex items-center gap-1 rounded-md border border-slate-200 bg-white/95 p-1 shadow-sm"
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
       style={{
         left: Math.max(8, object.x + object.width - 100),
         top: Math.max(8, object.y + 8)
       }}
     >
       <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onMinimize} aria-label="Minimize material" title="Minimize">
-        <Minimize2 size={15} aria-hidden="true" />
+        <Minus size={15} aria-hidden="true" />
       </button>
       <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onFullscreen} aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"} title={fullscreen ? "Exit fullscreen" : "Fullscreen"}>
         <Maximize2 size={15} aria-hidden="true" />
@@ -1240,6 +1311,9 @@ function ToolOptions({
   setArrowWidth: (width: number) => void;
 }) {
   const activeTool = selectedObject?.type === "text" ? "text" : tool;
+  const hasOptions = activeTool === "text" || tool === "pencil" || tool === "highlighter" || tool === "shape" || tool === "arrow" || tool === "delete";
+
+  if (!hasOptions) return null;
 
   return (
     <div className="mb-3 flex min-h-12 flex-wrap items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
@@ -1290,7 +1364,6 @@ function ToolOptions({
         </>
       ) : null}
 
-      {tool === "select" && !selectedObject ? <span className="text-sm text-slate-500">Select or choose a tool</span> : null}
       {tool === "delete" ? <span className="text-sm text-coral">Click an object to delete it</span> : null}
     </div>
   );
@@ -1840,6 +1913,17 @@ function isSavableObject(object: WhiteboardObject) {
 
 function isMaterialObject(object: WhiteboardObject) {
   return object.type === "image" || object.type === "pdf";
+}
+
+function formatLessonDropdownDate(value: string) {
+  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  const month = new Intl.DateTimeFormat("en-US", { month: "short" }).format(date);
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${month} ${day}, ${hour}:${minute}`;
 }
 
 function getMaterialBounds(material: WhiteboardObject) {
