@@ -8,6 +8,7 @@ import {
   ArrowDown,
   ArrowLeftRight,
   ArrowUp,
+  BookOpen,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -18,7 +19,6 @@ import {
   Highlighter,
   Home,
   Image as ImageIcon,
-  Maximize2,
   Minus,
   MousePointer2,
   Pencil,
@@ -49,6 +49,8 @@ type MaterialTarget = {
   pageNumber: number | null;
   bounds: { x: number; y: number; width: number; height: number };
 };
+
+type ReaderFitMode = "page" | "width";
 
 const CANVAS_WIDTH = 10000;
 const CANVAS_HEIGHT = 10000;
@@ -94,6 +96,8 @@ export function ClassroomEditor({
   const [hoveredMaterialId, setHoveredMaterialId] = useState<string | null>(null);
   const [controlsHoveredMaterialId, setControlsHoveredMaterialId] = useState<string | null>(null);
   const [fullscreenMaterialId, setFullscreenMaterialId] = useState<string | null>(null);
+  const [readerZoom, setReaderZoom] = useState(1);
+  const [readerFitMode, setReaderFitMode] = useState<ReaderFitMode>("page");
   const [boardsCollapsed, setBoardsCollapsed] = useState(false);
   const [viewportSize, setViewportSize] = useState(DEFAULT_VIEWPORT);
   const [viewportScale, setViewportScale] = useState(1);
@@ -108,6 +112,7 @@ export function ClassroomEditor({
   const transformerRef = useRef<Konva.Transformer>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const materialHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousBoardsCollapsed = useRef(false);
   const skipNextSave = useRef(false);
   const rootObjects = objects.filter((object) => !object.parent_material_id);
   const materialObjects = rootObjects.filter(isMaterialObject);
@@ -121,8 +126,8 @@ export function ClassroomEditor({
       height: viewportSize.height / viewportScale
     };
 
-    return fullscreenMaterial ? getContainedMaterialBounds(visibleBounds, fullscreenMaterial, 48 / viewportScale) : visibleBounds;
-  }, [fullscreenMaterial, stagePosition.x, stagePosition.y, viewportScale, viewportSize.height, viewportSize.width]);
+    return fullscreenMaterial ? getContainedMaterialBounds(visibleBounds, fullscreenMaterial, 72 / viewportScale, readerZoom, readerFitMode) : visibleBounds;
+  }, [fullscreenMaterial, readerFitMode, readerZoom, stagePosition.x, stagePosition.y, viewportScale, viewportSize.height, viewportSize.width]);
 
   useEffect(() => {
     if (!sortedBoards.length) return;
@@ -660,12 +665,37 @@ export function ClassroomEditor({
     patchObject(id, { data: { ...object.data, ...dataPatch } });
   }
 
+  function openReader(id: string) {
+    previousBoardsCollapsed.current = boardsCollapsed;
+    patchMaterialData(id, { displayState: "normal" });
+    setFullscreenMaterialId(id);
+    setSelectedId(id);
+    setReaderZoom(1);
+    setReaderFitMode("page");
+    setBoardsCollapsed(true);
+  }
+
+  function closeReader() {
+    setFullscreenMaterialId(null);
+    setReaderZoom(1);
+    setReaderFitMode("page");
+    setBoardsCollapsed(previousBoardsCollapsed.current);
+  }
+
+  function minimizeMaterial(id: string) {
+    if (fullscreenMaterialId === id) closeReader();
+    patchMaterialData(id, { displayState: "minimized" });
+    setSelectedId(null);
+    setHoveredMaterialId(null);
+    setControlsHoveredMaterialId(null);
+  }
+
   function removeMaterial(id: string) {
     const object = objects.find((item) => item.id === id);
     if (!object || !window.confirm("Remove this material from the board?")) return;
     updateObjects(objects.filter((item) => item.id !== id && item.parent_material_id !== id));
     setSelectedId(null);
-    setFullscreenMaterialId((current) => (current === id ? null : current));
+    if (fullscreenMaterialId === id) closeReader();
   }
 
   function setMaterialHover(id: string, hovered: boolean) {
@@ -834,7 +864,7 @@ export function ClassroomEditor({
           />
 
           <div className="relative h-full min-w-0 overflow-hidden">
-            {boardsCollapsed ? (
+            {boardsCollapsed && !fullscreenMaterial ? (
               <button
                 className="absolute left-4 top-20 z-20 flex items-center gap-1 rounded-md border border-slate-200 bg-white/95 px-2 py-1.5 text-sm font-medium text-slate-600 shadow-sm hover:bg-slate-50"
                 onClick={() => setBoardsCollapsed(false)}
@@ -1041,37 +1071,24 @@ export function ClassroomEditor({
                       object={objectToViewport(object)}
                       visible={selectedId === object.id || hoveredMaterialId === object.id || controlsHoveredMaterialId === object.id}
                       onHover={(hovered) => setControlsHoveredMaterialId(hovered ? object.id : null)}
-                      onMinimize={() => {
-                        patchMaterialData(object.id, { displayState: "minimized" });
-                        setSelectedId(null);
-                        setHoveredMaterialId(null);
-                        setControlsHoveredMaterialId(null);
-                      }}
-                      onFullscreen={() => {
-                        patchMaterialData(object.id, { displayState: "normal" });
-                        setFullscreenMaterialId(object.id);
-                        setSelectedId(object.id);
-                      }}
+                      onMinimize={() => minimizeMaterial(object.id)}
+                      onOpenReader={() => openReader(object.id)}
                       onClose={() => removeMaterial(object.id)}
                     />
                   ))
-                : (
-                    <MaterialControls
-                      object={objectToViewport({ ...fullscreenMaterial, ...fullscreenBounds })}
-                      visible
-                      fullscreen
-                      onHover={(hovered) => setControlsHoveredMaterialId(hovered ? fullscreenMaterial.id : null)}
-                      onMinimize={() => {
-                        setFullscreenMaterialId(null);
-                        patchMaterialData(fullscreenMaterial.id, { displayState: "minimized" });
-                        setSelectedId(null);
-                        setHoveredMaterialId(null);
-                        setControlsHoveredMaterialId(null);
-                      }}
-                      onFullscreen={() => setFullscreenMaterialId(null)}
-                      onClose={() => removeMaterial(fullscreenMaterial.id)}
-                    />
-                  )}
+                : null}
+              {fullscreenMaterial ? (
+                <ReaderControls
+                  material={fullscreenMaterial}
+                  zoom={readerZoom}
+                  fitMode={readerFitMode}
+                  onZoomChange={setReaderZoom}
+                  onFitModeChange={setReaderFitMode}
+                  onPageChange={(page) => patchMaterialData(fullscreenMaterial.id, { page })}
+                  onMinimize={() => minimizeMaterial(fullscreenMaterial.id)}
+                  onClose={closeReader}
+                />
+              ) : null}
               {editingTextId ? (
                 <InlineTextEditor
                   object={getEditingTextObject() ? objectToViewport(getEditingTextObject()!) : undefined}
@@ -1098,16 +1115,14 @@ export function ClassroomEditor({
                   }}
                 />
               ) : null}
-              {selectedId ? (
+              {selectedId && !fullscreenMaterial ? (
                 <PdfControls
                   object={objects.find((object) => object.id === selectedId)}
                   bounds={
-                    fullscreenMaterial?.id === selectedId
-                      ? viewportRectFromCanvas(fullscreenBounds)
-                      : (() => {
-                          const object = objects.find((item) => item.id === selectedId);
-                          return object?.type === "pdf" ? viewportRectFromCanvas(getMaterialBounds(object)) : undefined;
-                        })()
+                    (() => {
+                      const object = objects.find((item) => item.id === selectedId);
+                      return object?.type === "pdf" ? viewportRectFromCanvas(getMaterialBounds(object)) : undefined;
+                    })()
                   }
                   onPageChange={(page) => {
                     const object = objects.find((item) => item.id === selectedId);
@@ -1231,18 +1246,16 @@ function Toolbar({
 function MaterialControls({
   object,
   visible,
-  fullscreen = false,
   onHover,
   onMinimize,
-  onFullscreen,
+  onOpenReader,
   onClose
 }: {
   object: WhiteboardObject;
   visible: boolean;
-  fullscreen?: boolean;
   onHover: (hovered: boolean) => void;
   onMinimize: () => void;
-  onFullscreen: () => void;
+  onOpenReader: () => void;
   onClose: () => void;
 }) {
   if (!visible || object.data.displayState === "minimized") return null;
@@ -1260,11 +1273,93 @@ function MaterialControls({
       <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onMinimize} aria-label="Minimize material" title="Minimize">
         <Minus size={15} aria-hidden="true" />
       </button>
-      <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onFullscreen} aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"} title={fullscreen ? "Exit fullscreen" : "Fullscreen"}>
-        <Maximize2 size={15} aria-hidden="true" />
+      <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onOpenReader} aria-label="Open in reader" title="Open in reader">
+        <BookOpen size={15} aria-hidden="true" />
       </button>
       <button className="rounded p-1 text-coral hover:bg-red-50" onClick={onClose} aria-label="Remove material" title="Remove">
         <X size={15} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+function ReaderControls({
+  material,
+  zoom,
+  fitMode,
+  onZoomChange,
+  onFitModeChange,
+  onPageChange,
+  onMinimize,
+  onClose
+}: {
+  material: WhiteboardObject;
+  zoom: number;
+  fitMode: ReaderFitMode;
+  onZoomChange: (zoom: number) => void;
+  onFitModeChange: (mode: ReaderFitMode) => void;
+  onPageChange: (page: number) => void;
+  onMinimize: () => void;
+  onClose: () => void;
+}) {
+  const isPdf = material.type === "pdf";
+  const page = Number(material.data.page ?? 1);
+  const pageCount = Number(material.data.pageCount ?? 1);
+  const filename = String(material.data.filename ?? (isPdf ? "PDF" : "Image"));
+
+  return (
+    <div className="absolute left-1/2 top-4 z-30 flex max-w-[min(860px,calc(100%-2rem))] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-md border border-slate-200 bg-white/95 px-3 py-2 text-sm shadow-sm">
+      <span className="max-w-56 truncate font-medium text-ink">{filename}</span>
+      {isPdf ? (
+        <>
+          <button className="rounded-md p-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40" disabled={page <= 1} onClick={() => onPageChange(page - 1)} aria-label="Previous PDF page">
+            <ChevronLeft size={16} aria-hidden="true" />
+          </button>
+          <span className="min-w-16 text-center text-slate-600">
+            {page} / {pageCount || "?"}
+          </span>
+          <button
+            className="rounded-md p-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+            disabled={pageCount > 0 && page >= pageCount}
+            onClick={() => onPageChange(page + 1)}
+            aria-label="Next PDF page"
+          >
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
+        </>
+      ) : null}
+      <div className="h-5 w-px bg-slate-200" />
+      <button className="rounded-md p-1 text-slate-600 hover:bg-slate-100" onClick={() => onZoomChange(Math.max(0.4, zoom * 0.85))} aria-label="Reader zoom out">
+        <ZoomOut size={16} aria-hidden="true" />
+      </button>
+      <span className="min-w-14 text-center text-xs font-medium tabular-nums text-slate-600">{Math.round(zoom * 100)}%</span>
+      <button className="rounded-md p-1 text-slate-600 hover:bg-slate-100" onClick={() => onZoomChange(Math.min(3, zoom * 1.18))} aria-label="Reader zoom in">
+        <ZoomIn size={16} aria-hidden="true" />
+      </button>
+      <button
+        className={`rounded-md px-2 py-1 text-xs font-medium ${fitMode === "width" ? "bg-leaf text-white" : "text-slate-600 hover:bg-slate-100"}`}
+        onClick={() => {
+          onFitModeChange("width");
+          onZoomChange(1);
+        }}
+      >
+        Fit width
+      </button>
+      <button
+        className={`rounded-md px-2 py-1 text-xs font-medium ${fitMode === "page" ? "bg-leaf text-white" : "text-slate-600 hover:bg-slate-100"}`}
+        onClick={() => {
+          onFitModeChange("page");
+          onZoomChange(1);
+        }}
+      >
+        Fit page
+      </button>
+      <div className="h-5 w-px bg-slate-200" />
+      <button className="rounded-md p-1 text-slate-600 hover:bg-slate-100" onClick={onMinimize} aria-label="Minimize material" title="Minimize">
+        <Minus size={16} aria-hidden="true" />
+      </button>
+      <button className="rounded-md p-1 text-slate-600 hover:bg-slate-100" onClick={onClose} aria-label="Back to whiteboard" title="Back to whiteboard">
+        <X size={16} aria-hidden="true" />
       </button>
     </div>
   );
@@ -1979,12 +2074,15 @@ function getMaterialBounds(material: WhiteboardObject) {
 function getContainedMaterialBounds(
   availableBounds: { x: number; y: number; width: number; height: number },
   material: WhiteboardObject,
-  margin: number
+  margin: number,
+  zoom = 1,
+  fitMode: ReaderFitMode = "page"
 ) {
   const availableWidth = Math.max(1, availableBounds.width - margin * 2);
   const availableHeight = Math.max(1, availableBounds.height - margin * 2);
   const sourceSize = getMaterialSourceSize(material);
-  const scale = Math.min(availableWidth / sourceSize.width, availableHeight / sourceSize.height);
+  const fitScale = fitMode === "width" ? availableWidth / sourceSize.width : Math.min(availableWidth / sourceSize.width, availableHeight / sourceSize.height);
+  const scale = fitScale * zoom;
   const width = sourceSize.width * scale;
   const height = sourceSize.height * scale;
 
