@@ -58,6 +58,8 @@ export type WhiteboardObjectType =
 export type WhiteboardObject = {
   id: string;
   board_id: string;
+  parent_material_id?: string | null;
+  page_number?: number | null;
   type: WhiteboardObjectType;
   x: number;
   y: number;

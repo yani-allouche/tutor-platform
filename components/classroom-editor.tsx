@@ -16,6 +16,8 @@ import {
   FileText,
   Highlighter,
   Image as ImageIcon,
+  Maximize2,
+  Minimize2,
   MousePointer2,
   Pencil,
   Plus,
@@ -24,7 +26,8 @@ import {
   Shapes,
   Trash2,
   Type,
-  Undo2
+  Undo2,
+  X
 } from "lucide-react";
 import type { Board, WhiteboardObject, WhiteboardObjectType } from "@/lib/types";
 import { formatDate } from "@/lib/format";
@@ -38,12 +41,19 @@ type LessonEditorData = {
   student_name: string | null;
 };
 
+type MaterialTarget = {
+  id: string;
+  pageNumber: number | null;
+  bounds: { x: number; y: number; width: number; height: number };
+};
+
 const CANVAS_WIDTH = 1120;
 const CANVAS_HEIGHT = 720;
 const DRAW_COLORS = ["#172026", "#2f6f5e", "#d95f49", "#2563eb", "#7c3aed"];
 const HIGHLIGHT_COLORS = ["#f5c542", "#90e0ef", "#b9fbc0", "#ffadad", "#d8b4fe"];
 const SHAPE_FILLS = ["rgba(47, 111, 94, 0.08)", "rgba(37, 99, 235, 0.10)", "rgba(217, 95, 73, 0.10)", "rgba(245, 197, 66, 0.18)", "transparent"];
 const SHAPES = ["rect", "ellipse", "triangle", "diamond"] as const;
+const FULLSCREEN_BOUNDS = { x: 0, y: 0, width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
 
 export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; boards: Board[] }) {
   const router = useRouter();
@@ -68,6 +78,9 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [drawingTarget, setDrawingTarget] = useState<MaterialTarget | null>(null);
+  const [hoveredMaterialId, setHoveredMaterialId] = useState<string | null>(null);
+  const [fullscreenMaterialId, setFullscreenMaterialId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [history, setHistory] = useState<WhiteboardObject[][]>([]);
   const [future, setFuture] = useState<WhiteboardObject[][]>([]);
@@ -76,6 +89,9 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
   const transformerRef = useRef<Konva.Transformer>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextSave = useRef(false);
+  const rootObjects = objects.filter((object) => !object.parent_material_id);
+  const materialObjects = rootObjects.filter(isMaterialObject);
+  const fullscreenMaterial = fullscreenMaterialId ? materialObjects.find((object) => object.id === fullscreenMaterialId) : null;
 
   useEffect(() => {
     if (!sortedBoards.length) return;
@@ -155,7 +171,13 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
       if (event.key !== "Delete" && event.key !== "Backspace") return;
 
       event.preventDefault();
-      updateObjects(objects.filter((object) => object.id !== selectedId));
+      const selectedObject = objects.find((object) => object.id === selectedId);
+      if (selectedObject && isMaterialObject(selectedObject)) {
+        if (!window.confirm("Remove this material from the board?")) return;
+        updateObjects(objects.filter((object) => object.id !== selectedId && object.parent_material_id !== selectedId));
+      } else {
+        updateObjects(objects.filter((object) => object.id !== selectedId));
+      }
       setSelectedId(null);
       setEditingTextId(null);
     }
@@ -199,13 +221,18 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     }
   }
 
-  function addObject(type: WhiteboardObjectType, x: number, y: number) {
+  function addObject(type: WhiteboardObjectType, x: number, y: number, target = getMaterialTargetAtPoint({ x, y })) {
+    const relativePoint = target ? toRelativePoint(x, y, target.bounds) : { x, y };
+    const baseWidth = type === "text" ? 260 : type === "shape" ? 180 : 220;
+    const baseHeight = type === "text" ? Math.max(56, textSize + 24) : type === "shape" ? 110 : 80;
     const base = {
       id: crypto.randomUUID(),
       board_id: activeBoardId,
+      parent_material_id: target?.id ?? null,
+      page_number: target?.pageNumber ?? null,
       type,
-      x,
-      y,
+      x: relativePoint.x,
+      y: relativePoint.y,
       rotation: 0,
       z_index: objects.length,
       created_at: new Date().toISOString(),
@@ -216,22 +243,26 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
       type === "text"
         ? {
             ...base,
-            width: 260,
-            height: Math.max(56, textSize + 24),
+            width: target ? baseWidth / target.bounds.width : baseWidth,
+            height: target ? baseHeight / target.bounds.height : baseHeight,
             data: { text: "", fontSize: textSize, fill: textColor }
           }
         : type === "shape"
           ? {
               ...base,
-              width: 180,
-              height: 110,
+              width: target ? baseWidth / target.bounds.width : baseWidth,
+              height: target ? baseHeight / target.bounds.height : baseHeight,
               data: { shape: shapeKind, stroke: shapeStroke, strokeWidth: shapeStrokeWidth, fill: shapeFill }
             }
           : {
               ...base,
-              width: 220,
-              height: 80,
-              data: { points: [0, 0, 220, 80], stroke: arrowColor, strokeWidth: arrowWidth }
+              width: target ? baseWidth / target.bounds.width : baseWidth,
+              height: target ? baseHeight / target.bounds.height : baseHeight,
+              data: {
+                points: target ? [0, 0, baseWidth / target.bounds.width, baseHeight / target.bounds.height] : [0, 0, 220, 80],
+                stroke: arrowColor,
+                strokeWidth: arrowWidth
+              }
             };
 
     updateObjects([...objects, object]);
@@ -250,6 +281,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
   function handleStageMouseDown(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     const pointer = getPointer();
     const isStage = event.target === event.target.getStage();
+    const materialTarget = getMaterialTargetAtPoint(pointer);
 
     if (tool === "select") {
       if (isStage) setSelectedId(null);
@@ -264,24 +296,27 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     }
 
     if (tool === "text") {
-      addObject("text", pointer.x, pointer.y);
+      addObject("text", pointer.x, pointer.y, materialTarget);
       return;
     }
 
     if (tool === "shape") {
-      addObject("shape", pointer.x, pointer.y);
+      addObject("shape", pointer.x, pointer.y, materialTarget);
       return;
     }
 
     if (tool === "arrow") {
-      addObject("arrow", pointer.x, pointer.y);
+      addObject("arrow", pointer.x, pointer.y, materialTarget);
       return;
     }
 
     if (tool === "pencil" || tool === "highlighter") {
+      const startPoint = materialTarget ? toRelativePoint(pointer.x, pointer.y, materialTarget.bounds) : pointer;
       const strokeObject: WhiteboardObject = {
         id: crypto.randomUUID(),
         board_id: activeBoardId,
+        parent_material_id: materialTarget?.id ?? null,
+        page_number: materialTarget?.pageNumber ?? null,
         type: tool === "pencil" ? "pencil_stroke" : "highlighter_stroke",
         x: 0,
         y: 0,
@@ -290,7 +325,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
         rotation: 0,
         z_index: objects.length,
         data: {
-          points: [pointer.x, pointer.y],
+          points: [startPoint.x, startPoint.y],
           stroke: tool === "pencil" ? penColor : highlightColor,
           strokeWidth: tool === "pencil" ? penWidth : highlightWidth,
           opacity: tool === "pencil" ? 1 : 0.38
@@ -298,6 +333,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
       };
 
       updateObjects([...objects, strokeObject]);
+      setDrawingTarget(materialTarget);
       setIsDrawing(true);
     }
   }
@@ -305,6 +341,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
   function handleStageMouseMove() {
     if (!isDrawing) return;
     const pointer = getPointer();
+    const nextPoint = drawingTarget ? toRelativePoint(pointer.x, pointer.y, drawingTarget.bounds) : pointer;
 
     setObjects((current) => {
       const next = [...current];
@@ -313,7 +350,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
       const points = Array.isArray(last.data.points) ? (last.data.points as number[]) : [];
       next[next.length - 1] = {
         ...last,
-        data: { ...last.data, points: [...points, pointer.x, pointer.y] }
+        data: { ...last.data, points: [...points, nextPoint.x, nextPoint.y] }
       };
       return next;
     });
@@ -321,6 +358,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
 
   function handleStageMouseUp() {
     setIsDrawing(false);
+    setDrawingTarget(null);
   }
 
   function patchObject(id: string, patch: Partial<WhiteboardObject>, remember = true) {
@@ -375,6 +413,56 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
       current = current.getParent();
     }
     return null;
+  }
+
+  function getMaterialTargetAtPoint(point: { x: number; y: number }): MaterialTarget | null {
+    if (fullscreenMaterial) {
+      return {
+        id: fullscreenMaterial.id,
+        pageNumber: fullscreenMaterial.type === "pdf" ? Number(fullscreenMaterial.data.page ?? 1) : null,
+        bounds: FULLSCREEN_BOUNDS
+      };
+    }
+
+    const materialsAtPoint = materialObjects
+      .filter((object) => object.data.displayState !== "minimized")
+      .filter((object) => point.x >= object.x && point.x <= object.x + object.width && point.y >= object.y && point.y <= object.y + object.height)
+      .sort((a, b) => b.z_index - a.z_index);
+
+    const material = materialsAtPoint[0];
+    if (!material) return null;
+
+    return {
+      id: material.id,
+      pageNumber: material.type === "pdf" ? Number(material.data.page ?? 1) : null,
+      bounds: getMaterialBounds(material)
+    };
+  }
+
+  function patchMaterialData(id: string, dataPatch: Record<string, unknown>) {
+    const object = objects.find((item) => item.id === id);
+    if (!object) return;
+    patchObject(id, { data: { ...object.data, ...dataPatch } });
+  }
+
+  function removeMaterial(id: string) {
+    const object = objects.find((item) => item.id === id);
+    if (!object || !window.confirm("Remove this material from the board?")) return;
+    updateObjects(objects.filter((item) => item.id !== id && item.parent_material_id !== id));
+    setSelectedId(null);
+    setFullscreenMaterialId((current) => (current === id ? null : current));
+  }
+
+  function getEditingTextObject() {
+    const object = objects.find((item) => item.id === editingTextId);
+    if (!object) return undefined;
+    if (!object.parent_material_id) return object;
+
+    const material = materialObjects.find((item) => item.id === object.parent_material_id);
+    if (!material) return object;
+
+    const bounds = fullscreenMaterial?.id === material.id ? FULLSCREEN_BOUNDS : getMaterialBounds(material);
+    return materialAnnotationToBoard(object, bounds);
   }
 
   return (
@@ -569,27 +657,76 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
               >
                 <Layer>
                   <Rect width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="#ffffff" />
-                  {objects.map((object) => (
-                    <WhiteboardNode
-                      key={object.id}
-                      object={object}
-                      selected={selectedId === object.id}
-                      onSelect={() => {
-                        if (tool !== "delete") setSelectedId(object.id);
-                      }}
-                      onChange={(patch) => patchObject(object.id, patch)}
-                      onTextEdit={() => setEditingTextId(object.id)}
-                      onPdfPageChange={(page, pageCount) => {
-                        patchObject(object.id, {
-                          data: {
-                            ...object.data,
-                            page,
-                            pageCount
+                  {(fullscreenMaterial ? [fullscreenMaterial] : rootObjects).flatMap((object) => {
+                    if (!isMaterialObject(object)) {
+                      return [
+                        <WhiteboardNode
+                          key={object.id}
+                          object={object}
+                          selected={selectedId === object.id}
+                          onSelect={() => {
+                            if (tool !== "delete") setSelectedId(object.id);
+                          }}
+                          onChange={(patch) => patchObject(object.id, patch)}
+                          onTextEdit={() => setEditingTextId(object.id)}
+                          onPdfPageChange={() => undefined}
+                        />
+                      ];
+                    }
+
+                    const materialBounds = fullscreenMaterial ? FULLSCREEN_BOUNDS : getMaterialBounds(object);
+                    const materialForRender = fullscreenMaterial ? { ...object, ...FULLSCREEN_BOUNDS } : object;
+                    const materialPage = object.type === "pdf" ? Number(object.data.page ?? 1) : null;
+                    const annotations = object.data.displayState === "minimized"
+                      ? []
+                      : objects
+                          .filter((item) => item.parent_material_id === object.id)
+                          .filter((item) => item.page_number === null || item.page_number === materialPage)
+                          .map((item) => materialAnnotationToBoard(item, materialBounds));
+
+                    return [
+                      <WhiteboardNode
+                        key={object.id}
+                        object={materialForRender}
+                        selected={selectedId === object.id}
+                        onSelect={() => {
+                          if (tool === "delete") return;
+                          if (object.data.displayState === "minimized") {
+                            patchMaterialData(object.id, { displayState: "normal" });
+                            return;
                           }
-                        });
-                      }}
-                    />
-                  ))}
+                          setSelectedId(object.id);
+                        }}
+                        onHover={(hovered) => setHoveredMaterialId(hovered ? object.id : null)}
+                        onChange={(patch) => {
+                          if (!fullscreenMaterial) patchObject(object.id, patch);
+                        }}
+                        onTextEdit={() => undefined}
+                        onPdfPageChange={(page, pageCount) => {
+                          patchObject(object.id, {
+                            data: {
+                              ...object.data,
+                              page,
+                              pageCount
+                            }
+                          });
+                        }}
+                      />,
+                      ...annotations.map((annotation) => (
+                        <WhiteboardNode
+                          key={annotation.id}
+                          object={annotation}
+                          selected={selectedId === annotation.id}
+                          onSelect={() => {
+                            if (tool !== "delete") setSelectedId(annotation.id);
+                          }}
+                          onChange={(patch) => patchObject(annotation.id, boardPatchToMaterialPatch(patch, materialBounds))}
+                          onTextEdit={() => setEditingTextId(annotation.id)}
+                          onPdfPageChange={() => undefined}
+                        />
+                      ))
+                    ];
+                  })}
                   <Transformer
                     ref={transformerRef}
                     rotateEnabled
@@ -601,9 +738,37 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
                   />
                 </Layer>
               </Stage>
+              {!fullscreenMaterial
+                ? materialObjects.map((object) => (
+                    <MaterialControls
+                      key={object.id}
+                      object={object}
+                      visible={selectedId === object.id || hoveredMaterialId === object.id}
+                      onMinimize={() => patchMaterialData(object.id, { displayState: "minimized" })}
+                      onFullscreen={() => {
+                        patchMaterialData(object.id, { displayState: "normal" });
+                        setFullscreenMaterialId(object.id);
+                        setSelectedId(object.id);
+                      }}
+                      onClose={() => removeMaterial(object.id)}
+                    />
+                  ))
+                : (
+                    <MaterialControls
+                      object={{ ...fullscreenMaterial, ...FULLSCREEN_BOUNDS }}
+                      visible
+                      fullscreen
+                      onMinimize={() => {
+                        setFullscreenMaterialId(null);
+                        patchMaterialData(fullscreenMaterial.id, { displayState: "minimized" });
+                      }}
+                      onFullscreen={() => setFullscreenMaterialId(null)}
+                      onClose={() => removeMaterial(fullscreenMaterial.id)}
+                    />
+                  )}
               {editingTextId ? (
                 <InlineTextEditor
-                  object={objects.find((object) => object.id === editingTextId)}
+                  object={getEditingTextObject()}
                   onChange={(text) => {
                     const object = objects.find((item) => item.id === editingTextId);
                     if (object) patchObject(object.id, { data: { ...object.data, text } }, false);
@@ -629,6 +794,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
               {selectedId ? (
                 <PdfControls
                   object={objects.find((object) => object.id === selectedId)}
+                  bounds={fullscreenMaterial?.id === selectedId ? FULLSCREEN_BOUNDS : undefined}
                   onPageChange={(page) => {
                     const object = objects.find((item) => item.id === selectedId);
                     if (object?.type === "pdf") {
@@ -697,6 +863,44 @@ function Toolbar({
       </button>
       <button className="rounded-md p-2 text-coral hover:bg-red-50" onClick={clearBoard} aria-label="Clear board" title="Clear board">
         <RotateCcw size={19} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+function MaterialControls({
+  object,
+  visible,
+  fullscreen = false,
+  onMinimize,
+  onFullscreen,
+  onClose
+}: {
+  object: WhiteboardObject;
+  visible: boolean;
+  fullscreen?: boolean;
+  onMinimize: () => void;
+  onFullscreen: () => void;
+  onClose: () => void;
+}) {
+  if (!visible || object.data.displayState === "minimized") return null;
+
+  return (
+    <div
+      className="absolute flex items-center gap-1 rounded-md border border-slate-200 bg-white/95 p-1 shadow-sm"
+      style={{
+        left: Math.max(8, object.x + object.width - 100),
+        top: Math.max(8, object.y + 8)
+      }}
+    >
+      <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onMinimize} aria-label="Minimize material" title="Minimize">
+        <Minimize2 size={15} aria-hidden="true" />
+      </button>
+      <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onFullscreen} aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"} title={fullscreen ? "Exit fullscreen" : "Fullscreen"}>
+        <Maximize2 size={15} aria-hidden="true" />
+      </button>
+      <button className="rounded p-1 text-coral hover:bg-red-50" onClick={onClose} aria-label="Remove material" title="Remove">
+        <X size={15} aria-hidden="true" />
       </button>
     </div>
   );
@@ -877,7 +1081,8 @@ function WhiteboardNode({
   onSelect,
   onChange,
   onTextEdit,
-  onPdfPageChange
+  onPdfPageChange,
+  onHover
 }: {
   object: WhiteboardObject;
   selected: boolean;
@@ -885,6 +1090,7 @@ function WhiteboardNode({
   onChange: (patch: Partial<WhiteboardObject>) => void;
   onTextEdit: () => void;
   onPdfPageChange: (page: number, pageCount?: number) => void;
+  onHover?: (hovered: boolean) => void;
 }) {
   const common = {
     id: object.id,
@@ -894,6 +1100,8 @@ function WhiteboardNode({
     draggable: true,
     onClick: onSelect,
     onTap: onSelect,
+    onMouseEnter: () => onHover?.(true),
+    onMouseLeave: () => onHover?.(false),
     onDragEnd: (event: Konva.KonvaEventObject<DragEvent>) => {
       onChange({ x: event.target.x(), y: event.target.y() });
     },
@@ -914,6 +1122,10 @@ function WhiteboardNode({
   };
 
   if (object.type === "image") {
+    if (object.data.displayState === "minimized") {
+      return <MinimizedMaterialNode common={common} object={object} label={`Image — ${String(object.data.filename ?? "Image")}`} />;
+    }
+
     return (
       <MaterialImageNode
         common={common}
@@ -925,6 +1137,10 @@ function WhiteboardNode({
   }
 
   if (object.type === "pdf") {
+    if (object.data.displayState === "minimized") {
+      return <MinimizedMaterialNode common={common} object={object} label={`PDF — ${String(object.data.filename ?? "PDF")}`} />;
+    }
+
     return (
       <PdfNode
         common={common}
@@ -1098,6 +1314,33 @@ function MaterialImageNode({
   );
 }
 
+function MinimizedMaterialNode({
+  common,
+  object,
+  label
+}: {
+  common: Record<string, unknown>;
+  object: WhiteboardObject;
+  label: string;
+}) {
+  return (
+    <>
+      <Rect {...common} width={260} height={52} fill="#ffffff" stroke="#cbd5e1" strokeWidth={1.5} cornerRadius={6} />
+      <Text
+        {...common}
+        x={object.x + 12}
+        y={object.y + 16}
+        width={236}
+        height={20}
+        text={label}
+        fill="#172026"
+        fontSize={14}
+        ellipsis
+      />
+    </>
+  );
+}
+
 function PdfNode({
   common,
   object,
@@ -1151,22 +1394,25 @@ function PdfNode({
 
 function PdfControls({
   object,
+  bounds,
   onPageChange
 }: {
   object?: WhiteboardObject;
+  bounds?: { x: number; y: number; width: number; height: number };
   onPageChange: (page: number) => void;
 }) {
   if (object?.type !== "pdf") return null;
 
   const page = Number(object.data.page ?? 1);
   const pageCount = Number(object.data.pageCount ?? 1);
+  const controlBounds = bounds ?? getMaterialBounds(object);
 
   return (
     <div
       className="absolute flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm shadow-sm"
       style={{
-        left: Math.max(8, object.x),
-        top: Math.max(8, object.y - 42)
+        left: Math.max(8, controlBounds.x),
+        top: Math.max(8, controlBounds.y + 8)
       }}
     >
       <button
@@ -1310,4 +1556,73 @@ function InlineTextEditor({
 function isSavableObject(object: WhiteboardObject) {
   if (object.type !== "text") return true;
   return String(object.data.text ?? "").trim().length > 0;
+}
+
+function isMaterialObject(object: WhiteboardObject) {
+  return object.type === "image" || object.type === "pdf";
+}
+
+function getMaterialBounds(material: WhiteboardObject) {
+  return {
+    x: material.x,
+    y: material.y,
+    width: material.width,
+    height: material.height
+  };
+}
+
+function toRelativePoint(x: number, y: number, bounds: { x: number; y: number; width: number; height: number }) {
+  return {
+    x: (x - bounds.x) / bounds.width,
+    y: (y - bounds.y) / bounds.height
+  };
+}
+
+function materialAnnotationToBoard(object: WhiteboardObject, bounds: { x: number; y: number; width: number; height: number }): WhiteboardObject {
+  const data = { ...object.data };
+
+  if (object.type === "pencil_stroke" || object.type === "highlighter_stroke") {
+    if (Array.isArray(data.points)) {
+      data.points = (data.points as number[]).map((point, index) => (index % 2 === 0 ? bounds.x + point * bounds.width : bounds.y + point * bounds.height));
+    }
+
+    return {
+      ...object,
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      data
+    };
+  }
+
+  if (object.type === "arrow" && Array.isArray(data.points)) {
+    data.points = (data.points as number[]).map((point, index) => (index % 2 === 0 ? point * bounds.width : point * bounds.height));
+  }
+
+  return {
+    ...object,
+    x: bounds.x + object.x * bounds.width,
+    y: bounds.y + object.y * bounds.height,
+    width: object.width * bounds.width,
+    height: object.height * bounds.height,
+    data
+  };
+}
+
+function boardPatchToMaterialPatch(patch: Partial<WhiteboardObject>, bounds: { x: number; y: number; width: number; height: number }): Partial<WhiteboardObject> {
+  const next: Partial<WhiteboardObject> = { ...patch };
+  if (typeof patch.x === "number") next.x = (patch.x - bounds.x) / bounds.width;
+  if (typeof patch.y === "number") next.y = (patch.y - bounds.y) / bounds.height;
+  if (typeof patch.width === "number") next.width = patch.width / bounds.width;
+  if (typeof patch.height === "number") next.height = patch.height / bounds.height;
+
+  if (patch.data && Array.isArray(patch.data.points)) {
+    next.data = {
+      ...patch.data,
+      points: (patch.data.points as number[]).map((point, index) => (index % 2 === 0 ? (point - bounds.x) / bounds.width : (point - bounds.y) / bounds.height))
+    };
+  }
+
+  return next;
 }

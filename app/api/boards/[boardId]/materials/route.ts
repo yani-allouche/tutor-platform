@@ -80,6 +80,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .from("whiteboard_objects")
     .insert({
       board_id: boardId,
+      parent_material_id: null,
+      page_number: null,
       type: isPdf ? "pdf" : "image",
       x: 80,
       y: 80,
@@ -97,7 +99,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         pageCount: isPdf ? null : 1
       }
     })
-    .select("id,board_id,type,x,y,width,height,rotation,z_index,data,created_at,updated_at")
+    .select("id,board_id,parent_material_id,page_number,type,x,y,width,height,rotation,z_index,data,created_at,updated_at")
     .single();
 
   if (objectError || !object) {

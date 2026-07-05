@@ -8,7 +8,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("whiteboard_objects")
-    .select("id,board_id,type,x,y,width,height,rotation,z_index,data,created_at,updated_at")
+    .select("id,board_id,parent_material_id,page_number,type,x,y,width,height,rotation,z_index,data,created_at,updated_at")
     .eq("board_id", boardId)
     .order("z_index", { ascending: true });
 
@@ -31,6 +31,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const payload = objects.map((object, index) => ({
     id: object.id,
     board_id: boardId,
+    parent_material_id: object.parent_material_id ?? null,
+    page_number: object.page_number ?? null,
     type: object.type,
     x: object.x,
     y: object.y,
@@ -44,7 +46,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const { data, error } = await supabase
     .from("whiteboard_objects")
     .insert(payload)
-    .select("id,board_id,type,x,y,width,height,rotation,z_index,data,created_at,updated_at")
+    .select("id,board_id,parent_material_id,page_number,type,x,y,width,height,rotation,z_index,data,created_at,updated_at")
     .order("z_index", { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

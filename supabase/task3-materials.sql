@@ -24,6 +24,12 @@ alter table public.whiteboard_objects
 drop constraint if exists whiteboard_objects_type_check;
 
 alter table public.whiteboard_objects
+add column if not exists parent_material_id uuid references public.whiteboard_objects(id) on delete cascade;
+
+alter table public.whiteboard_objects
+add column if not exists page_number integer;
+
+alter table public.whiteboard_objects
 add constraint whiteboard_objects_type_check
 check (type in ('text', 'pencil_stroke', 'highlighter_stroke', 'shape', 'arrow', 'image', 'pdf', 'pdf_annotation'));
 
