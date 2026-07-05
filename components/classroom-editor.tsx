@@ -556,6 +556,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
 
                     patchObject(object.id, { data: { ...object.data, text } });
                     setEditingTextId(null);
+                    setSelectedId(null);
                   }}
                 />
               ) : null}
