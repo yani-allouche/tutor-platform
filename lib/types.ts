@@ -1,8 +1,6 @@
 export type StudentSummary = {
   id: string;
   name: string;
-  language_learned: string;
-  level: string;
   lesson_count: number;
   last_lesson_date: string | null;
 };
@@ -19,9 +17,6 @@ export type LessonSummary = {
 export type Student = {
   id: string;
   name: string;
-  language_learned: string;
-  level: string;
-  goals: string;
   notes: string;
   created_at: string;
   updated_at: string;

@@ -13,7 +13,7 @@ export default async function StudentsPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Students"
-        description="Private profiles for your language learners."
+        description="Private learner notes and lesson history."
         action={
           <Link className="btn-primary" href="/students/new">
             <Plus size={16} aria-hidden="true" />
@@ -29,8 +29,6 @@ export default async function StudentsPage() {
               <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Language</th>
-                  <th className="px-4 py-3">Level</th>
                   <th className="px-4 py-3">Lessons</th>
                   <th className="px-4 py-3">Last lesson</th>
                   <th className="px-4 py-3 text-right">Actions</th>
@@ -44,8 +42,6 @@ export default async function StudentsPage() {
                         {student.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{student.language_learned || "Not set"}</td>
-                    <td className="px-4 py-3 text-slate-600">{student.level || "Not set"}</td>
                     <td className="px-4 py-3 text-slate-600">{student.lesson_count}</td>
                     <td className="px-4 py-3 text-slate-600">{formatDate(student.last_lesson_date)}</td>
                     <td className="px-4 py-3">

@@ -8,9 +8,6 @@ import { getCurrentTutorId } from "@/lib/data";
 function studentPayload(formData: FormData) {
   return {
     name: String(formData.get("name") ?? "").trim(),
-    language_learned: String(formData.get("language_learned") ?? "").trim(),
-    level: String(formData.get("level") ?? "").trim(),
-    goals: String(formData.get("goals") ?? "").trim(),
     notes: String(formData.get("notes") ?? "").trim()
   };
 }

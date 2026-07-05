@@ -47,7 +47,7 @@ export async function getStudents(): Promise<StudentSummary[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("students")
-    .select("id,name,language_learned,level,goals,notes,created_at,updated_at,lessons(lesson_date,deleted_at)")
+    .select("id,name,notes,created_at,updated_at,lessons(lesson_date,deleted_at)")
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
@@ -62,8 +62,6 @@ export async function getStudents(): Promise<StudentSummary[]> {
     return {
       id: student.id,
       name: student.name,
-      language_learned: student.language_learned,
-      level: student.level,
       lesson_count: lessonDates.length,
       last_lesson_date: lessonDates.at(-1) ?? null
     };
@@ -86,7 +84,7 @@ export async function getStudent(id: string): Promise<Student> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("students")
-    .select("id,name,language_learned,level,goals,notes,created_at,updated_at")
+    .select("id,name,notes,created_at,updated_at")
     .eq("id", id)
     .is("deleted_at", null)
     .single();

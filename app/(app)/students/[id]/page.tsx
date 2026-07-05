@@ -14,7 +14,7 @@ export default async function StudentDetailPage({ params }: { params: Promise<{ 
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title={student.name}
-        description={[student.language_learned, student.level].filter(Boolean).join(" · ") || "Student profile"}
+        description="Student profile"
         action={
           <>
             <Link className="btn-secondary" href={`/students/${student.id}/edit`}>
@@ -31,11 +31,7 @@ export default async function StudentDetailPage({ params }: { params: Promise<{ 
         }
       />
 
-      <div className="mb-8 grid gap-4 md:grid-cols-2">
-        <section className="panel p-5">
-          <h2 className="mb-3 text-base font-semibold text-ink">Goals</h2>
-          <p className="whitespace-pre-wrap text-sm text-slate-600">{student.goals || "No goals added yet."}</p>
-        </section>
+      <div className="mb-8">
         <section className="panel p-5">
           <h2 className="mb-3 text-base font-semibold text-ink">Notes</h2>
           <p className="whitespace-pre-wrap text-sm text-slate-600">{student.notes || "No notes added yet."}</p>

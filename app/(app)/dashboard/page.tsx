@@ -75,9 +75,6 @@ export default async function DashboardPage() {
             {students.slice(0, 6).map((student) => (
               <Link key={student.id} className="panel p-4 transition hover:border-leaf" href={`/students/${student.id}`}>
                 <p className="font-medium text-ink">{student.name}</p>
-                <p className="mt-1 text-sm text-slate-500">
-                  {[student.language_learned, student.level].filter(Boolean).join(" · ") || "No level set"}
-                </p>
                 <p className="mt-3 text-xs text-slate-500">
                   {student.lesson_count} lessons
                   {student.last_lesson_date ? ` · Last ${formatDate(student.last_lesson_date)}` : ""}
@@ -89,7 +86,7 @@ export default async function DashboardPage() {
           <EmptyState
             icon={Users}
             title="No students yet"
-            description="Create a profile to track goals, notes, and lesson history."
+            description="Create a profile to track notes and lesson history."
             action={
               <Link className="btn-primary" href="/students/new">
                 <Plus size={16} aria-hidden="true" />
