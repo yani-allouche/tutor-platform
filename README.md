@@ -6,7 +6,7 @@ Tutor-only SaaS foundation for independent language tutors.
 
 1. Create a Supabase project.
 2. Run `supabase/schema.sql` in the Supabase SQL editor.
-3. Copy `.env.example` to `.env.local` and fill in the project URL and anon key.
+3. Copy `.env.example` to `.env.local` and fill in the project URL and publishable key.
 4. Run:
 
 ```bash
