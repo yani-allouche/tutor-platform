@@ -64,6 +64,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const isPdf = file.type === "application/pdf";
+  const { data: latestObject, error: latestObjectError } = await supabase
+    .from("whiteboard_objects")
+    .select("z_index")
+    .eq("board_id", boardId)
+    .order("z_index", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (latestObjectError) {
+    return NextResponse.json({ error: latestObjectError.message }, { status: 500 });
+  }
+
   const { data: object, error: objectError } = await supabase
     .from("whiteboard_objects")
     .insert({
@@ -74,7 +86,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       width: isPdf ? 520 : 420,
       height: isPdf ? 640 : 280,
       rotation: 0,
-      z_index: Date.now(),
+      z_index: Number(latestObject?.z_index ?? -1) + 1,
       data: {
         fileId: uploadedFile.id,
         filename: uploadedFile.filename,
