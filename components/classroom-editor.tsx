@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Stage, Layer, Rect, Ellipse, Text, Line, Arrow, Transformer, RegularPolygon } from "react-konva";
 import type Konva from "konva";
@@ -119,7 +119,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
       fetch(`/api/boards/${activeBoardId}/objects`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ objects })
+        body: JSON.stringify({ objects: objects.filter(isSavableObject) })
       })
         .then((response) => {
           if (!response.ok) throw new Error("Save failed");
@@ -135,13 +135,28 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     };
   }, [activeBoardId, objects]);
 
-  function updateObjects(next: WhiteboardObject[], remember = true) {
+  const updateObjects = useCallback((next: WhiteboardObject[], remember = true) => {
     if (remember) {
       setHistory((current) => [...current.slice(-29), objects]);
       setFuture([]);
     }
     setObjects(next);
-  }
+  }, [objects]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (editingTextId || !selectedId) return;
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+
+      event.preventDefault();
+      updateObjects(objects.filter((object) => object.id !== selectedId));
+      setSelectedId(null);
+      setEditingTextId(null);
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [editingTextId, selectedId, objects, updateObjects]);
 
   function addObject(type: WhiteboardObjectType, x: number, y: number) {
     const base = {
@@ -162,7 +177,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
             ...base,
             width: 260,
             height: Math.max(56, textSize + 24),
-            data: { text: "Type here", fontSize: textSize, fill: textColor }
+            data: { text: "", fontSize: textSize, fill: textColor }
           }
         : type === "shape"
           ? {
@@ -181,6 +196,9 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     updateObjects([...objects, object]);
     setSelectedId(object.id);
     setTool("select");
+    if (type === "text") {
+      window.setTimeout(() => setEditingTextId(object.id), 0);
+    }
   }
 
   function getPointer() {
@@ -522,9 +540,23 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
                   object={objects.find((object) => object.id === editingTextId)}
                   onChange={(text) => {
                     const object = objects.find((item) => item.id === editingTextId);
-                    if (object) patchObject(object.id, { data: { ...object.data, text } });
+                    if (object) patchObject(object.id, { data: { ...object.data, text } }, false);
                   }}
-                  onDone={() => setEditingTextId(null)}
+                  onDone={(text) => {
+                    const object = objects.find((item) => item.id === editingTextId);
+                    if (!object) {
+                      setEditingTextId(null);
+                      return;
+                    }
+
+                    if (!text.trim()) {
+                      removeObject(object.id);
+                      return;
+                    }
+
+                    patchObject(object.id, { data: { ...object.data, text } });
+                    setEditingTextId(null);
+                  }}
                 />
               ) : null}
             </div>
@@ -932,7 +964,7 @@ function InlineTextEditor({
 }: {
   object?: WhiteboardObject;
   onChange: (text: string) => void;
-  onDone: () => void;
+  onDone: (text: string) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -942,6 +974,10 @@ function InlineTextEditor({
   }, [object?.id]);
 
   if (!object) return null;
+
+  function finishEditing() {
+    onDone(ref.current?.value ?? "");
+  }
 
   return (
     <textarea
@@ -958,11 +994,16 @@ function InlineTextEditor({
       }}
       defaultValue={String(object.data.text ?? "")}
       onChange={(event) => onChange(event.target.value)}
-      onBlur={onDone}
+      onBlur={finishEditing}
       onKeyDown={(event) => {
-        if (event.key === "Escape") onDone();
-        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") onDone();
+        if (event.key === "Escape") finishEditing();
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") finishEditing();
       }}
     />
   );
+}
+
+function isSavableObject(object: WhiteboardObject) {
+  if (object.type !== "text") return true;
+  return String(object.data.text ?? "").trim().length > 0;
 }
