@@ -1,0 +1,50 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import type { WhiteboardObject } from "@/lib/types";
+
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ boardId: string }> }) {
+  const { boardId } = await params;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("whiteboard_objects")
+    .select("id,board_id,type,x,y,width,height,rotation,z_index,data,created_at,updated_at")
+    .eq("board_id", boardId)
+    .order("z_index", { ascending: true });
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ objects: data ?? [] });
+}
+
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ boardId: string }> }) {
+  const { boardId } = await params;
+  const supabase = await createClient();
+  const body = (await request.json()) as { objects?: WhiteboardObject[] };
+  const objects = body.objects ?? [];
+
+  const { error: deleteError } = await supabase.from("whiteboard_objects").delete().eq("board_id", boardId);
+  if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 });
+
+  if (!objects.length) return NextResponse.json({ objects: [] });
+
+  const payload = objects.map((object, index) => ({
+    id: object.id,
+    board_id: boardId,
+    type: object.type,
+    x: object.x,
+    y: object.y,
+    width: object.width,
+    height: object.height,
+    rotation: object.rotation,
+    z_index: index,
+    data: object.data
+  }));
+
+  const { data, error } = await supabase
+    .from("whiteboard_objects")
+    .insert(payload)
+    .select("id,board_id,type,x,y,width,height,rotation,z_index,data,created_at,updated_at")
+    .order("z_index", { ascending: true });
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ objects: data ?? [] });
+}

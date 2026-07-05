@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import type { Lesson, LessonSummary, Student, StudentOption, StudentSummary } from "@/lib/types";
+import type { Board, Lesson, LessonSummary, Student, StudentOption, StudentSummary } from "@/lib/types";
 
 type StudentRow = Student & {
   lessons?: { lesson_date: string; deleted_at: string | null }[];
@@ -144,7 +144,30 @@ export async function getLessonBoards(id: string) {
     .order("order", { ascending: true });
 
   if (error) throw new Error(error.message);
-  return data ?? [];
+  return (data ?? []) as Board[];
+}
+
+export async function getLessonWithStudent(id: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("lessons")
+    .select("id,student_id,title,lesson_date,created_at,updated_at,students(name)")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .single();
+
+  if (error || !data) notFound();
+
+  const studentRelation = data.students as { name: string } | { name: string }[] | null;
+  return {
+    id: data.id as string,
+    student_id: data.student_id as string | null,
+    title: data.title as string,
+    lesson_date: data.lesson_date as string,
+    created_at: data.created_at as string,
+    updated_at: data.updated_at as string,
+    student_name: Array.isArray(studentRelation) ? studentRelation[0]?.name ?? null : studentRelation?.name ?? null
+  };
 }
 
 function mapLessonSummaries(rows: LessonSummaryRow[]): LessonSummary[] {

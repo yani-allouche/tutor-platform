@@ -35,3 +35,29 @@ export type StudentOption = {
   id: string;
   name: string;
 };
+
+export type Board = {
+  id: string;
+  lesson_id: string;
+  name: string;
+  order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WhiteboardObjectType = "text" | "pencil_stroke" | "highlighter_stroke" | "shape" | "arrow";
+
+export type WhiteboardObject = {
+  id: string;
+  board_id: string;
+  type: WhiteboardObjectType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  z_index: number;
+  data: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+};
