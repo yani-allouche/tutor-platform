@@ -34,8 +34,8 @@ type LessonEditorData = {
   student_name: string | null;
 };
 
-const CANVAS_WIDTH = 1600;
-const CANVAS_HEIGHT = 1000;
+const CANVAS_WIDTH = 1120;
+const CANVAS_HEIGHT = 720;
 
 export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; boards: Board[] }) {
   const router = useRouter();
@@ -44,6 +44,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
   const [tool, setTool] = useState<Tool>("select");
   const [objects, setObjects] = useState<WhiteboardObject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [history, setHistory] = useState<WhiteboardObject[][]>([]);
@@ -181,7 +182,8 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     }
 
     if (tool === "delete") {
-      if (!isStage) removeObject(event.target.id());
+      if (selectedId) removeObject(selectedId);
+      else if (!isStage) removeObject(event.target.id());
       return;
     }
 
@@ -253,6 +255,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     if (!id) return;
     updateObjects(objects.filter((object) => object.id !== id));
     setSelectedId(null);
+    setEditingTextId(null);
   }
 
   function clearBoard() {
@@ -268,6 +271,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     setHistory((current) => current.slice(0, -1));
     setObjects(previous);
     setSelectedId(null);
+    setEditingTextId(null);
   }
 
   function redo() {
@@ -277,6 +281,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     setFuture((current) => current.slice(1));
     setObjects(next);
     setSelectedId(null);
+    setEditingTextId(null);
   }
 
   function runBoardAction(action: () => Promise<void>) {
@@ -304,7 +309,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
         </div>
       </div>
 
-      <div className="grid min-h-[calc(100vh-8rem)] grid-cols-1 lg:grid-cols-[260px_1fr_280px]">
+      <div className="grid min-h-[calc(100vh-8rem)] grid-cols-1 lg:grid-cols-[260px_1fr]">
         <aside className="border-b border-slate-200 bg-slate-50 p-3 lg:border-b-0 lg:border-r">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-ink">Boards</h2>
@@ -392,7 +397,14 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
         <section className="grid min-h-[640px] grid-cols-[56px_1fr] bg-slate-100">
           <Toolbar
             tool={tool}
-            setTool={setTool}
+            setTool={(nextTool) => {
+              if (nextTool === "delete" && selectedId) {
+                removeObject(selectedId);
+                setTool("select");
+                return;
+              }
+              setTool(nextTool);
+            }}
             undo={undo}
             redo={redo}
             clearBoard={clearBoard}
@@ -401,13 +413,11 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
           />
 
           <div className="overflow-auto p-4">
-            <div className="h-[720px] w-[1120px] overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm">
+            <div className="relative h-[720px] w-[1120px] overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm">
               <Stage
                 ref={stageRef}
-                width={1120}
-                height={720}
-                scaleX={1120 / CANVAS_WIDTH}
-                scaleY={720 / CANVAS_HEIGHT}
+                width={CANVAS_WIDTH}
+                height={CANVAS_HEIGHT}
                 onMouseDown={handleStageMouseDown}
                 onMouseMove={handleStageMouseMove}
                 onMouseUp={handleStageMouseUp}
@@ -424,7 +434,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
                       selected={selectedId === object.id}
                       onSelect={() => setSelectedId(object.id)}
                       onChange={(patch) => patchObject(object.id, patch)}
-                      onTextEdit={(text) => patchObject(object.id, { data: { ...object.data, text } })}
+                      onTextEdit={() => setEditingTextId(object.id)}
                     />
                   ))}
                   <Transformer
@@ -438,18 +448,19 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
                   />
                 </Layer>
               </Stage>
+              {editingTextId ? (
+                <InlineTextEditor
+                  object={objects.find((object) => object.id === editingTextId)}
+                  onChange={(text) => {
+                    const object = objects.find((item) => item.id === editingTextId);
+                    if (object) patchObject(object.id, { data: { ...object.data, text } });
+                  }}
+                  onDone={() => setEditingTextId(null)}
+                />
+              ) : null}
             </div>
           </div>
         </section>
-
-        <aside className="space-y-3 border-t border-slate-200 bg-slate-50 p-3 lg:border-l lg:border-t-0">
-          {["Lesson notes", "Homework", "Corrections"].map((title) => (
-            <section key={title} className="rounded-md border border-slate-200 bg-white p-3">
-              <h2 className="text-sm font-semibold text-ink">{title}</h2>
-              <p className="mt-2 text-sm text-slate-500">Placeholder</p>
-            </section>
-          ))}
-        </aside>
       </div>
     </div>
   );
@@ -523,7 +534,7 @@ function WhiteboardNode({
   selected: boolean;
   onSelect: () => void;
   onChange: (patch: Partial<WhiteboardObject>) => void;
-  onTextEdit: (text: string) => void;
+  onTextEdit: () => void;
 }) {
   const common = {
     id: object.id,
@@ -562,10 +573,8 @@ function WhiteboardNode({
         fontSize={Number(object.data.fontSize ?? 28)}
         fill={String(object.data.fill ?? "#172026")}
         padding={6}
-        onDblClick={() => {
-          const next = window.prompt("Text", String(object.data.text ?? ""));
-          if (next !== null) onTextEdit(next);
-        }}
+        onDblClick={onTextEdit}
+        onDblTap={onTextEdit}
         stroke={selected ? "#2f6f5e" : undefined}
         strokeWidth={selected ? 1 : 0}
       />
@@ -611,6 +620,48 @@ function WhiteboardNode({
       lineCap="round"
       lineJoin="round"
       globalCompositeOperation={object.type === "highlighter_stroke" ? "multiply" : "source-over"}
+    />
+  );
+}
+
+function InlineTextEditor({
+  object,
+  onChange,
+  onDone
+}: {
+  object?: WhiteboardObject;
+  onChange: (text: string) => void;
+  onDone: () => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, [object?.id]);
+
+  if (!object) return null;
+
+  return (
+    <textarea
+      ref={ref}
+      className="absolute resize-none rounded-sm border border-leaf bg-white/95 p-1.5 text-ink outline-none ring-2 ring-leaf/20"
+      style={{
+        left: object.x,
+        top: object.y,
+        width: Math.max(160, object.width),
+        height: Math.max(48, object.height),
+        fontSize: Number(object.data.fontSize ?? 28),
+        transform: `rotate(${object.rotation}deg)`,
+        transformOrigin: "top left"
+      }}
+      defaultValue={String(object.data.text ?? "")}
+      onChange={(event) => onChange(event.target.value)}
+      onBlur={onDone}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onDone();
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") onDone();
+      }}
     />
   );
 }
