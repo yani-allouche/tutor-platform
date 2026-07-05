@@ -45,7 +45,15 @@ export type Board = {
   updated_at: string;
 };
 
-export type WhiteboardObjectType = "text" | "pencil_stroke" | "highlighter_stroke" | "shape" | "arrow";
+export type WhiteboardObjectType =
+  | "text"
+  | "pencil_stroke"
+  | "highlighter_stroke"
+  | "shape"
+  | "arrow"
+  | "image"
+  | "pdf"
+  | "pdf_annotation";
 
 export type WhiteboardObject = {
   id: string;

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { addSignedMaterialUrls } from "@/lib/materials";
 import type { WhiteboardObject } from "@/lib/types";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ boardId: string }> }) {
@@ -12,7 +13,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     .order("z_index", { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ objects: data ?? [] });
+  const objects = await addSignedMaterialUrls((data ?? []) as WhiteboardObject[]);
+  return NextResponse.json({ objects });
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ boardId: string }> }) {
@@ -36,7 +38,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     height: object.height,
     rotation: object.rotation,
     z_index: index,
-    data: object.data
+    data: sanitizeObjectData(object)
   }));
 
   const { data, error } = await supabase
@@ -47,4 +49,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ objects: data ?? [] });
+}
+
+function sanitizeObjectData(object: WhiteboardObject) {
+  if (object.type !== "image" && object.type !== "pdf") return object.data;
+  const data = { ...object.data };
+  delete data.url;
+  return data;
 }

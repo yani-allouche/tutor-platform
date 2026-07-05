@@ -2,16 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Stage, Layer, Rect, Ellipse, Text, Line, Arrow, Transformer, RegularPolygon } from "react-konva";
+import { Stage, Layer, Rect, Ellipse, Text, Line, Arrow, Transformer, RegularPolygon, Image as KonvaImage } from "react-konva";
 import type Konva from "konva";
 import {
   ArrowDown,
   ArrowLeftRight,
   ArrowUp,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Download,
   Eraser,
+  FileText,
   Highlighter,
+  Image as ImageIcon,
   MousePointer2,
   Pencil,
   Plus,
@@ -61,6 +65,8 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
   const [shapeStrokeWidth, setShapeStrokeWidth] = useState(3);
   const [arrowColor, setArrowColor] = useState("#d95f49");
   const [arrowWidth, setArrowWidth] = useState(4);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [history, setHistory] = useState<WhiteboardObject[][]>([]);
@@ -157,6 +163,41 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [editingTextId, selectedId, objects, updateObjects]);
+
+  async function uploadMaterial(file: File) {
+    if (!activeBoardId) return;
+
+    setUploadError(null);
+    if (!["application/pdf", "image/png", "image/jpeg"].includes(file.type)) {
+      setUploadError("Upload a PDF, PNG, JPG, or JPEG.");
+      return;
+    }
+
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadError("File is too large. Maximum size is 50 MB.");
+      return;
+    }
+
+    setIsUploading(true);
+    const body = new FormData();
+    body.append("file", file);
+
+    try {
+      const response = await fetch(`/api/boards/${activeBoardId}/materials`, {
+        method: "POST",
+        body
+      });
+      const payload = (await response.json()) as { object?: WhiteboardObject; error?: string };
+      if (!response.ok || !payload.object) throw new Error(payload.error ?? "Upload failed");
+      updateObjects([...objects, payload.object]);
+      setSelectedId(payload.object.id);
+      setTool("select");
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Upload failed");
+    } finally {
+      setIsUploading(false);
+    }
+  }
 
   function addObject(type: WhiteboardObjectType, x: number, y: number) {
     const base = {
@@ -344,6 +385,21 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
           <p className="text-sm text-slate-500">{lesson.student_name ?? "Unlinked lesson"}</p>
         </div>
         <div className="flex items-center gap-3">
+          <label className="btn-secondary cursor-pointer">
+            <input
+              className="sr-only"
+              type="file"
+              accept="application/pdf,image/png,image/jpeg"
+              disabled={isUploading}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void uploadMaterial(file);
+              }}
+            />
+            {isUploading ? <FileText size={16} aria-hidden="true" /> : <ImageIcon size={16} aria-hidden="true" />}
+            {isUploading ? "Uploading" : "Upload"}
+          </label>
           <span className="text-sm text-slate-500">
             {saveStatus === "saving" ? "Saving..." : saveStatus === "error" ? "Save failed" : "Saved"}
           </span>
@@ -352,6 +408,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
             Export
           </button>
         </div>
+        {uploadError ? <p className="basis-full text-sm text-coral">{uploadError}</p> : null}
       </div>
 
       <div className="grid min-h-[calc(100vh-8rem)] grid-cols-1 lg:grid-cols-[260px_1fr]">
@@ -522,6 +579,15 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
                       }}
                       onChange={(patch) => patchObject(object.id, patch)}
                       onTextEdit={() => setEditingTextId(object.id)}
+                      onPdfPageChange={(page, pageCount) => {
+                        patchObject(object.id, {
+                          data: {
+                            ...object.data,
+                            page,
+                            pageCount
+                          }
+                        });
+                      }}
                     />
                   ))}
                   <Transformer
@@ -557,6 +623,17 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
                     patchObject(object.id, { data: { ...object.data, text } });
                     setEditingTextId(null);
                     setSelectedId(null);
+                  }}
+                />
+              ) : null}
+              {selectedId ? (
+                <PdfControls
+                  object={objects.find((object) => object.id === selectedId)}
+                  onPageChange={(page) => {
+                    const object = objects.find((item) => item.id === selectedId);
+                    if (object?.type === "pdf") {
+                      patchObject(object.id, { data: { ...object.data, page } });
+                    }
                   }}
                 />
               ) : null}
@@ -799,13 +876,15 @@ function WhiteboardNode({
   selected,
   onSelect,
   onChange,
-  onTextEdit
+  onTextEdit,
+  onPdfPageChange
 }: {
   object: WhiteboardObject;
   selected: boolean;
   onSelect: () => void;
   onChange: (patch: Partial<WhiteboardObject>) => void;
   onTextEdit: () => void;
+  onPdfPageChange: (page: number, pageCount?: number) => void;
 }) {
   const common = {
     id: object.id,
@@ -833,6 +912,30 @@ function WhiteboardNode({
       });
     }
   };
+
+  if (object.type === "image") {
+    return (
+      <MaterialImageNode
+        common={common}
+        object={object}
+        selected={selected}
+        url={String(object.data.url ?? "")}
+      />
+    );
+  }
+
+  if (object.type === "pdf") {
+    return (
+      <PdfNode
+        common={common}
+        object={object}
+        selected={selected}
+        url={String(object.data.url ?? "")}
+        page={Number(object.data.page ?? 1)}
+        onPageReady={onPdfPageChange}
+      />
+    );
+  }
 
   function centeredDragEnd(event: Konva.KonvaEventObject<DragEvent>) {
     onChange({
@@ -956,6 +1059,206 @@ function WhiteboardNode({
       globalCompositeOperation={object.type === "highlighter_stroke" ? "multiply" : "source-over"}
     />
   );
+}
+
+function MaterialImageNode({
+  common,
+  object,
+  selected,
+  url
+}: {
+  common: Record<string, unknown>;
+  object: WhiteboardObject;
+  selected: boolean;
+  url: string;
+}) {
+  const image = useCanvasImage(url);
+
+  return (
+    <>
+      <KonvaImage
+        {...common}
+        image={image ?? undefined}
+        width={object.width}
+        height={object.height}
+        stroke={selected ? "#2f6f5e" : undefined}
+        strokeWidth={selected ? 2 : 0}
+      />
+      {!image ? (
+        <Rect
+          {...common}
+          width={object.width}
+          height={object.height}
+          fill="#f8fafc"
+          stroke="#cbd5e1"
+          dash={[8, 6]}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function PdfNode({
+  common,
+  object,
+  selected,
+  url,
+  page,
+  onPageReady
+}: {
+  common: Record<string, unknown>;
+  object: WhiteboardObject;
+  selected: boolean;
+  url: string;
+  page: number;
+  onPageReady: (page: number, pageCount?: number) => void;
+}) {
+  const { image, pageCount } = usePdfPageImage(url, page);
+
+  useEffect(() => {
+    if (pageCount && pageCount !== Number(object.data.pageCount ?? 0)) {
+      onPageReady(page, pageCount);
+    }
+  }, [object.data.pageCount, onPageReady, page, pageCount]);
+
+  return (
+    <>
+      <KonvaImage
+        {...common}
+        image={image ?? undefined}
+        width={object.width}
+        height={object.height}
+        stroke={selected ? "#2f6f5e" : "#d5dce3"}
+        strokeWidth={selected ? 2 : 1}
+      />
+      {!image ? (
+        <Text
+          {...common}
+          width={object.width}
+          height={object.height}
+          text="Loading PDF..."
+          align="center"
+          verticalAlign="middle"
+          fill="#64748b"
+          fontSize={18}
+          stroke="#cbd5e1"
+          strokeWidth={1}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function PdfControls({
+  object,
+  onPageChange
+}: {
+  object?: WhiteboardObject;
+  onPageChange: (page: number) => void;
+}) {
+  if (object?.type !== "pdf") return null;
+
+  const page = Number(object.data.page ?? 1);
+  const pageCount = Number(object.data.pageCount ?? 1);
+
+  return (
+    <div
+      className="absolute flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm shadow-sm"
+      style={{
+        left: Math.max(8, object.x),
+        top: Math.max(8, object.y - 42)
+      }}
+    >
+      <button
+        className="rounded-md p-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+        disabled={page <= 1}
+        onClick={() => onPageChange(page - 1)}
+        aria-label="Previous PDF page"
+      >
+        <ChevronLeft size={16} aria-hidden="true" />
+      </button>
+      <span className="min-w-16 text-center text-slate-600">
+        {page} / {pageCount || "?"}
+      </span>
+      <button
+        className="rounded-md p-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+        disabled={pageCount > 0 && page >= pageCount}
+        onClick={() => onPageChange(page + 1)}
+        aria-label="Next PDF page"
+      >
+        <ChevronRight size={16} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+function useCanvasImage(url: string) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (!url) {
+      setImage(null);
+      return;
+    }
+
+    const nextImage = new window.Image();
+    nextImage.crossOrigin = "anonymous";
+    nextImage.onload = () => setImage(nextImage);
+    nextImage.onerror = () => setImage(null);
+    nextImage.src = url;
+  }, [url]);
+
+  return image;
+}
+
+function usePdfPageImage(url: string, page: number) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [pageCount, setPageCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function renderPdfPage() {
+      if (!url) {
+        setImage(null);
+        return;
+      }
+
+      const pdfjs = await import("pdfjs-dist");
+      pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+
+      const pdf = await pdfjs.getDocument({ url }).promise;
+      const safePage = Math.min(Math.max(page, 1), pdf.numPages);
+      const pdfPage = await pdf.getPage(safePage);
+      const viewport = pdfPage.getViewport({ scale: 1.4 });
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      if (!context) return;
+
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await pdfPage.render({ canvas, canvasContext: context, viewport }).promise;
+
+      if (cancelled) return;
+      setPageCount(pdf.numPages);
+
+      const nextImage = new window.Image();
+      nextImage.onload = () => {
+        if (!cancelled) setImage(nextImage);
+      };
+      nextImage.src = canvas.toDataURL("image/png");
+    }
+
+    void renderPdfPage().catch(() => {
+      if (!cancelled) setImage(null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [page, url]);
+
+  return { image, pageCount };
 }
 
 function InlineTextEditor({
