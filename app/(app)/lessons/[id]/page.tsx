@@ -1,10 +1,10 @@
 import { ClassroomEditor } from "@/components/classroom-editor";
-import { getLessonBoards, getLessonWithStudent } from "@/lib/data";
+import { getLessonBoards, getLessonSwitcherOptions, getLessonWithStudent } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function LessonDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const lesson = await getLessonWithStudent(id);
+  const [lesson, lessonOptions] = await Promise.all([getLessonWithStudent(id), getLessonSwitcherOptions()]);
   let boards = await getLessonBoards(id);
 
   if (!boards.length) {
@@ -13,5 +13,5 @@ export default async function LessonDetailPage({ params }: { params: Promise<{ i
     boards = await getLessonBoards(id);
   }
 
-  return <ClassroomEditor lesson={lesson} boards={boards} />;
+  return <ClassroomEditor lesson={lesson} boards={boards} lessonOptions={lessonOptions} />;
 }

@@ -14,7 +14,9 @@ import {
   Download,
   Eraser,
   FileText,
+  Hand,
   Highlighter,
+  Home,
   Image as ImageIcon,
   Maximize2,
   Minimize2,
@@ -27,13 +29,15 @@ import {
   Trash2,
   Type,
   Undo2,
-  X
+  X,
+  ZoomIn,
+  ZoomOut
 } from "lucide-react";
-import type { Board, WhiteboardObject, WhiteboardObjectType } from "@/lib/types";
+import type { Board, LessonSummary, WhiteboardObject, WhiteboardObjectType } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { createBoard, deleteBoard, duplicateBoard, moveBoard, renameBoard } from "@/app/(app)/lessons/[id]/boards/actions";
 
-type Tool = "select" | "text" | "pencil" | "highlighter" | "shape" | "arrow" | "delete";
+type Tool = "select" | "hand" | "text" | "pencil" | "highlighter" | "shape" | "arrow" | "delete";
 
 type LessonEditorData = {
   id: string;
@@ -47,15 +51,24 @@ type MaterialTarget = {
   bounds: { x: number; y: number; width: number; height: number };
 };
 
-const CANVAS_WIDTH = 1120;
-const CANVAS_HEIGHT = 720;
+const CANVAS_WIDTH = 10000;
+const CANVAS_HEIGHT = 10000;
+const DEFAULT_VIEWPORT = { width: 1200, height: 760 };
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 3;
 const DRAW_COLORS = ["#172026", "#2f6f5e", "#d95f49", "#2563eb", "#7c3aed"];
 const HIGHLIGHT_COLORS = ["#f5c542", "#90e0ef", "#b9fbc0", "#ffadad", "#d8b4fe"];
 const SHAPE_FILLS = ["rgba(47, 111, 94, 0.08)", "rgba(37, 99, 235, 0.10)", "rgba(217, 95, 73, 0.10)", "rgba(245, 197, 66, 0.18)", "transparent"];
 const SHAPES = ["rect", "ellipse", "triangle", "diamond"] as const;
-const FULLSCREEN_BOUNDS = { x: 0, y: 0, width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
-
-export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; boards: Board[] }) {
+export function ClassroomEditor({
+  lesson,
+  boards,
+  lessonOptions
+}: {
+  lesson: LessonEditorData;
+  boards: Board[];
+  lessonOptions: LessonSummary[];
+}) {
   const router = useRouter();
   const sortedBoards = useMemo(() => [...boards].sort((a, b) => a.order - b.order), [boards]);
   const [activeBoardId, setActiveBoardId] = useState(sortedBoards[0]?.id ?? "");
@@ -81,17 +94,31 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
   const [drawingTarget, setDrawingTarget] = useState<MaterialTarget | null>(null);
   const [hoveredMaterialId, setHoveredMaterialId] = useState<string | null>(null);
   const [fullscreenMaterialId, setFullscreenMaterialId] = useState<string | null>(null);
+  const [viewportSize, setViewportSize] = useState(DEFAULT_VIEWPORT);
+  const [viewportScale, setViewportScale] = useState(1);
+  const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
+  const [spacePressed, setSpacePressed] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [history, setHistory] = useState<WhiteboardObject[][]>([]);
   const [future, setFuture] = useState<WhiteboardObject[][]>([]);
   const [isPending, startTransition] = useTransition();
   const stageRef = useRef<Konva.Stage>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextSave = useRef(false);
   const rootObjects = objects.filter((object) => !object.parent_material_id);
   const materialObjects = rootObjects.filter(isMaterialObject);
   const fullscreenMaterial = fullscreenMaterialId ? materialObjects.find((object) => object.id === fullscreenMaterialId) : null;
+  const fullscreenBounds = useMemo(
+    () => ({
+      x: -stagePosition.x / viewportScale,
+      y: -stagePosition.y / viewportScale,
+      width: viewportSize.width / viewportScale,
+      height: viewportSize.height / viewportScale
+    }),
+    [stagePosition.x, stagePosition.y, viewportScale, viewportSize.height, viewportSize.width]
+  );
 
   useEffect(() => {
     if (!sortedBoards.length) return;
@@ -118,6 +145,25 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
         setSaveStatus("error");
       });
   }, [activeBoardId]);
+
+  useEffect(() => {
+    const node = viewportRef.current;
+    if (!node) return;
+
+    function measure() {
+      const rect = node?.getBoundingClientRect();
+      if (!rect) return;
+      setViewportSize({
+        width: Math.max(360, Math.floor(rect.width)),
+        height: Math.max(420, Math.floor(rect.height))
+      });
+    }
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!transformerRef.current || !stageRef.current) return;
@@ -167,6 +213,12 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (event.code === "Space" && !editingTextId) {
+        event.preventDefault();
+        setSpacePressed(true);
+        return;
+      }
+
       if (editingTextId || !selectedId) return;
       if (event.key !== "Delete" && event.key !== "Backspace") return;
 
@@ -182,8 +234,16 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
       setEditingTextId(null);
     }
 
+    function handleKeyUp(event: KeyboardEvent) {
+      if (event.code === "Space") setSpacePressed(false);
+    }
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
   }, [editingTextId, selectedId, objects, updateObjects]);
 
   async function uploadMaterial(file: File) {
@@ -275,12 +335,91 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
 
   function getPointer() {
     const position = stageRef.current?.getPointerPosition();
-    return position ? { x: position.x, y: position.y } : { x: 80, y: 80 };
+    return position ? viewportToCanvas(position) : getViewportCenter();
+  }
+
+  function viewportToCanvas(point: { x: number; y: number }) {
+    return {
+      x: (point.x - stagePosition.x) / viewportScale,
+      y: (point.y - stagePosition.y) / viewportScale
+    };
+  }
+
+  function canvasToViewport(point: { x: number; y: number }) {
+    return {
+      x: point.x * viewportScale + stagePosition.x,
+      y: point.y * viewportScale + stagePosition.y
+    };
+  }
+
+  function objectToViewport(object: WhiteboardObject): WhiteboardObject {
+    const position = canvasToViewport({ x: object.x, y: object.y });
+    return {
+      ...object,
+      x: position.x,
+      y: position.y,
+      width: object.width * viewportScale,
+      height: object.height * viewportScale
+    };
+  }
+
+  function viewportRectFromCanvas(bounds: { x: number; y: number; width: number; height: number }) {
+    const position = canvasToViewport({ x: bounds.x, y: bounds.y });
+    return {
+      x: position.x,
+      y: position.y,
+      width: bounds.width * viewportScale,
+      height: bounds.height * viewportScale
+    };
+  }
+
+  function getViewportCenter() {
+    return viewportToCanvas({ x: viewportSize.width / 2, y: viewportSize.height / 2 });
+  }
+
+  function clampScale(scale: number) {
+    return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale));
+  }
+
+  function zoomAt(nextScale: number, center = { x: viewportSize.width / 2, y: viewportSize.height / 2 }) {
+    const clampedScale = clampScale(nextScale);
+    const canvasPoint = viewportToCanvas(center);
+    setViewportScale(clampedScale);
+    setStagePosition({
+      x: center.x - canvasPoint.x * clampedScale,
+      y: center.y - canvasPoint.y * clampedScale
+    });
+  }
+
+  function resetViewport() {
+    setViewportScale(1);
+    setStagePosition({ x: 0, y: 0 });
+  }
+
+  function handleWheel(event: Konva.KonvaEventObject<WheelEvent>) {
+    event.evt.preventDefault();
+    const pointer = stageRef.current?.getPointerPosition() ?? { x: viewportSize.width / 2, y: viewportSize.height / 2 };
+
+    if (event.evt.ctrlKey || event.evt.metaKey) {
+      const direction = event.evt.deltaY > 0 ? -1 : 1;
+      zoomAt(viewportScale * (direction > 0 ? 1.08 : 0.92), pointer);
+      return;
+    }
+
+    setStagePosition((current) => ({
+      x: current.x - event.evt.deltaX,
+      y: current.y - event.evt.deltaY
+    }));
   }
 
   function handleStageMouseDown(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    if (tool === "hand" || spacePressed) {
+      setSelectedId(null);
+      return;
+    }
+
     const pointer = getPointer();
-    const isStage = event.target === event.target.getStage();
+    const isStage = event.target === event.target.getStage() || event.target.name() === "canvas-background";
     const materialTarget = getMaterialTargetAtPoint(pointer);
 
     if (tool === "select") {
@@ -365,11 +504,82 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     updateObjects(objects.map((object) => (object.id === id ? { ...object, ...patch } : object)), remember);
   }
 
+  async function saveNow(nextObjects = objects) {
+    if (!activeBoardId) return true;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSaveStatus("saving");
+
+    try {
+      const response = await fetch(`/api/boards/${activeBoardId}/objects`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ objects: nextObjects.filter(isSavableObject) })
+      });
+      if (!response.ok) throw new Error("Save failed");
+      setSaveStatus("saved");
+      return true;
+    } catch {
+      setSaveStatus("error");
+      return false;
+    }
+  }
+
+  async function openLesson(lessonId: string) {
+    if (lessonId === lesson.id) return;
+    const saved = await saveNow();
+    if (!saved && !window.confirm("The whiteboard could not save. Leave anyway?")) return;
+    router.push(`/lessons/${lessonId}`);
+  }
+
+  async function closeWhiteboard() {
+    const saved = await saveNow();
+    if (!saved && !window.confirm("The whiteboard could not save. Leave anyway?")) return;
+    router.push("/lessons");
+  }
+
+  function exportBoardImage() {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const bounds = getExportBounds(objects, materialObjects, fullscreenMaterial ?? null, fullscreenMaterial ? fullscreenBounds : null);
+    const previous = {
+      x: stage.x(),
+      y: stage.y(),
+      scaleX: stage.scaleX(),
+      scaleY: stage.scaleY()
+    };
+
+    stage.position({ x: 0, y: 0 });
+    stage.scale({ x: 1, y: 1 });
+    stage.batchDraw();
+
+    const url = stage.toDataURL({
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      pixelRatio: 2
+    });
+
+    stage.position({ x: previous.x, y: previous.y });
+    stage.scale({ x: previous.scaleX, y: previous.scaleY });
+    stage.batchDraw();
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `whiteboard-${lesson.lesson_date}.png`;
+    link.click();
+  }
+
   function removeObject(id: string) {
     if (!id) return;
-    updateObjects(objects.filter((object) => object.id !== id));
+    const object = objects.find((item) => item.id === id);
+    updateObjects(objects.filter((item) => item.id !== id && item.parent_material_id !== id));
     setSelectedId(null);
     setEditingTextId(null);
+    if (object && isMaterialObject(object)) {
+      setFullscreenMaterialId((current) => (current === id ? null : current));
+    }
   }
 
   function clearBoard() {
@@ -420,7 +630,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
       return {
         id: fullscreenMaterial.id,
         pageNumber: fullscreenMaterial.type === "pdf" ? Number(fullscreenMaterial.data.page ?? 1) : null,
-        bounds: FULLSCREEN_BOUNDS
+        bounds: fullscreenBounds
       };
     }
 
@@ -461,16 +671,31 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     const material = materialObjects.find((item) => item.id === object.parent_material_id);
     if (!material) return object;
 
-    const bounds = fullscreenMaterial?.id === material.id ? FULLSCREEN_BOUNDS : getMaterialBounds(material);
+    const bounds = fullscreenMaterial?.id === material.id ? fullscreenBounds : getMaterialBounds(material);
     return materialAnnotationToBoard(object, bounds);
   }
 
   return (
-    <div className="min-h-[calc(100vh-3rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-        <div>
-          <h1 className="text-lg font-semibold text-ink">{formatDate(lesson.lesson_date)}</h1>
-          <p className="text-sm text-slate-500">{lesson.student_name ?? "Unlinked lesson"}</p>
+    <div className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-slate-100">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex min-w-0 items-center gap-3">
+          <select
+            className="field min-w-[260px] max-w-[min(520px,calc(100vw-8rem))] py-2 text-sm font-medium"
+            value={lesson.id}
+            onChange={(event) => void openLesson(event.target.value)}
+            aria-label="Open another lesson whiteboard"
+          >
+            {lessonOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.student_name ? `${option.student_name} - ` : ""}
+                {option.title} - {formatDate(option.lesson_date)}
+              </option>
+            ))}
+          </select>
+          <div className="hidden min-w-0 sm:block">
+            <p className="truncate text-sm font-semibold text-ink">{lesson.student_name ?? "Unlinked lesson"}</p>
+            <p className="text-xs text-slate-500">{formatDate(lesson.lesson_date)}</p>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <label className="btn-secondary cursor-pointer">
@@ -491,16 +716,19 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
           <span className="text-sm text-slate-500">
             {saveStatus === "saving" ? "Saving..." : saveStatus === "error" ? "Save failed" : "Saved"}
           </span>
-          <button className="btn-secondary opacity-60" disabled title="Export will come later">
+          <button className="btn-secondary" onClick={exportBoardImage} title="Export visible content as an image">
             <Download size={16} aria-hidden="true" />
             Export
+          </button>
+          <button className="rounded-md p-2 text-slate-600 hover:bg-slate-100" onClick={() => void closeWhiteboard()} aria-label="Close whiteboard" title="Close">
+            <X size={20} aria-hidden="true" />
           </button>
         </div>
         {uploadError ? <p className="basis-full text-sm text-coral">{uploadError}</p> : null}
       </div>
 
-      <div className="grid min-h-[calc(100vh-8rem)] grid-cols-1 lg:grid-cols-[260px_1fr]">
-        <aside className="border-b border-slate-200 bg-slate-50 p-3 lg:border-b-0 lg:border-r">
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[260px_1fr]">
+        <aside className="overflow-y-auto border-b border-slate-200 bg-slate-50 p-3 lg:border-b-0 lg:border-r">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-ink">Boards</h2>
             <form
@@ -584,7 +812,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
           </div>
         </aside>
 
-        <section className="grid min-h-[640px] grid-cols-[56px_1fr] bg-slate-100">
+        <section className="grid min-h-0 grid-cols-[56px_1fr] bg-slate-100">
           <Toolbar
             tool={tool}
             setTool={(nextTool) => {
@@ -602,61 +830,102 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
             canRedo={future.length > 0}
           />
 
-          <div className="overflow-auto p-4">
-            <ToolOptions
-              tool={tool}
-              selectedObject={objects.find((object) => object.id === selectedId)}
-              textColor={textColor}
-              setTextColor={(color) => {
-                setTextColor(color);
-                if (selectedId) {
-                  const object = objects.find((item) => item.id === selectedId);
-                  if (object?.type === "text") patchObject(object.id, { data: { ...object.data, fill: color } });
-                }
-              }}
-              textSize={textSize}
-              setTextSize={(size) => {
-                setTextSize(size);
-                if (selectedId) {
-                  const object = objects.find((item) => item.id === selectedId);
-                  if (object?.type === "text") patchObject(object.id, { data: { ...object.data, fontSize: size } });
-                }
-              }}
-              penColor={penColor}
-              setPenColor={setPenColor}
-              penWidth={penWidth}
-              setPenWidth={setPenWidth}
-              highlightColor={highlightColor}
-              setHighlightColor={setHighlightColor}
-              highlightWidth={highlightWidth}
-              setHighlightWidth={setHighlightWidth}
-              shapeKind={shapeKind}
-              setShapeKind={setShapeKind}
-              shapeStroke={shapeStroke}
-              setShapeStroke={setShapeStroke}
-              shapeFill={shapeFill}
-              setShapeFill={setShapeFill}
-              shapeStrokeWidth={shapeStrokeWidth}
-              setShapeStrokeWidth={setShapeStrokeWidth}
-              arrowColor={arrowColor}
-              setArrowColor={setArrowColor}
-              arrowWidth={arrowWidth}
-              setArrowWidth={setArrowWidth}
-            />
-            <div className="relative h-[720px] w-[1120px] overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm">
+          <div className="relative h-full min-w-0 overflow-hidden">
+            <div className="absolute left-4 top-4 z-20">
+              <ToolOptions
+                tool={tool}
+                selectedObject={objects.find((object) => object.id === selectedId)}
+                textColor={textColor}
+                setTextColor={(color) => {
+                  setTextColor(color);
+                  if (selectedId) {
+                    const object = objects.find((item) => item.id === selectedId);
+                    if (object?.type === "text") patchObject(object.id, { data: { ...object.data, fill: color } });
+                  }
+                }}
+                textSize={textSize}
+                setTextSize={(size) => {
+                  setTextSize(size);
+                  if (selectedId) {
+                    const object = objects.find((item) => item.id === selectedId);
+                    if (object?.type === "text") patchObject(object.id, { data: { ...object.data, fontSize: size } });
+                  }
+                }}
+                penColor={penColor}
+                setPenColor={setPenColor}
+                penWidth={penWidth}
+                setPenWidth={setPenWidth}
+                highlightColor={highlightColor}
+                setHighlightColor={setHighlightColor}
+                highlightWidth={highlightWidth}
+                setHighlightWidth={setHighlightWidth}
+                shapeKind={shapeKind}
+                setShapeKind={setShapeKind}
+                shapeStroke={shapeStroke}
+                setShapeStroke={setShapeStroke}
+                shapeFill={shapeFill}
+                setShapeFill={setShapeFill}
+                shapeStrokeWidth={shapeStrokeWidth}
+                setShapeStrokeWidth={setShapeStrokeWidth}
+                arrowColor={arrowColor}
+                setArrowColor={setArrowColor}
+                arrowWidth={arrowWidth}
+                setArrowWidth={setArrowWidth}
+              />
+            </div>
+            <div
+              ref={viewportRef}
+              className={`relative h-full min-h-[520px] w-full overflow-hidden bg-white ${
+                tool === "hand" || spacePressed ? "cursor-grab active:cursor-grabbing" : ""
+              }`}
+            >
+              <div className="absolute bottom-4 right-4 z-20 flex items-center gap-1 rounded-md border border-slate-200 bg-white/95 p-1 shadow-sm">
+                <button
+                  className="rounded p-1.5 text-slate-600 hover:bg-slate-100"
+                  onClick={() => zoomAt(viewportScale * 0.85)}
+                  aria-label="Zoom out"
+                  title="Zoom out"
+                >
+                  <ZoomOut size={16} aria-hidden="true" />
+                </button>
+                <span className="min-w-14 px-1 text-center text-xs font-medium tabular-nums text-slate-600">{Math.round(viewportScale * 100)}%</span>
+                <button
+                  className="rounded p-1.5 text-slate-600 hover:bg-slate-100"
+                  onClick={() => zoomAt(viewportScale * 1.18)}
+                  aria-label="Zoom in"
+                  title="Zoom in"
+                >
+                  <ZoomIn size={16} aria-hidden="true" />
+                </button>
+                <button
+                  className="rounded p-1.5 text-slate-600 hover:bg-slate-100"
+                  onClick={resetViewport}
+                  aria-label="Reset view"
+                  title="Reset view"
+                >
+                  <Home size={16} aria-hidden="true" />
+                </button>
+              </div>
               <Stage
                 ref={stageRef}
-                width={CANVAS_WIDTH}
-                height={CANVAS_HEIGHT}
+                width={viewportSize.width}
+                height={viewportSize.height}
+                x={stagePosition.x}
+                y={stagePosition.y}
+                scaleX={viewportScale}
+                scaleY={viewportScale}
+                draggable={tool === "hand" || spacePressed}
                 onMouseDown={handleStageMouseDown}
                 onMouseMove={handleStageMouseMove}
                 onMouseUp={handleStageMouseUp}
                 onTouchStart={handleStageMouseDown}
                 onTouchMove={handleStageMouseMove}
                 onTouchEnd={handleStageMouseUp}
+                onDragEnd={(event) => setStagePosition({ x: event.target.x(), y: event.target.y() })}
+                onWheel={handleWheel}
               >
                 <Layer>
-                  <Rect width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="#ffffff" />
+                  <Rect name="canvas-background" width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="#ffffff" />
                   {(fullscreenMaterial ? [fullscreenMaterial] : rootObjects).flatMap((object) => {
                     if (!isMaterialObject(object)) {
                       return [
@@ -674,8 +943,8 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
                       ];
                     }
 
-                    const materialBounds = fullscreenMaterial ? FULLSCREEN_BOUNDS : getMaterialBounds(object);
-                    const materialForRender = fullscreenMaterial ? { ...object, ...FULLSCREEN_BOUNDS } : object;
+                    const materialBounds = fullscreenMaterial ? fullscreenBounds : getMaterialBounds(object);
+                    const materialForRender = fullscreenMaterial ? { ...object, ...fullscreenBounds } : object;
                     const materialPage = object.type === "pdf" ? Number(object.data.page ?? 1) : null;
                     const annotations = object.data.displayState === "minimized"
                       ? []
@@ -742,7 +1011,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
                 ? materialObjects.map((object) => (
                     <MaterialControls
                       key={object.id}
-                      object={object}
+                      object={objectToViewport(object)}
                       visible={selectedId === object.id || hoveredMaterialId === object.id}
                       onMinimize={() => patchMaterialData(object.id, { displayState: "minimized" })}
                       onFullscreen={() => {
@@ -755,7 +1024,7 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
                   ))
                 : (
                     <MaterialControls
-                      object={{ ...fullscreenMaterial, ...FULLSCREEN_BOUNDS }}
+                      object={objectToViewport({ ...fullscreenMaterial, ...fullscreenBounds })}
                       visible
                       fullscreen
                       onMinimize={() => {
@@ -768,7 +1037,8 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
                   )}
               {editingTextId ? (
                 <InlineTextEditor
-                  object={getEditingTextObject()}
+                  object={getEditingTextObject() ? objectToViewport(getEditingTextObject()!) : undefined}
+                  viewportScale={viewportScale}
                   onChange={(text) => {
                     const object = objects.find((item) => item.id === editingTextId);
                     if (object) patchObject(object.id, { data: { ...object.data, text } }, false);
@@ -794,7 +1064,14 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
               {selectedId ? (
                 <PdfControls
                   object={objects.find((object) => object.id === selectedId)}
-                  bounds={fullscreenMaterial?.id === selectedId ? FULLSCREEN_BOUNDS : undefined}
+                  bounds={
+                    fullscreenMaterial?.id === selectedId
+                      ? viewportRectFromCanvas(fullscreenBounds)
+                      : (() => {
+                          const object = objects.find((item) => item.id === selectedId);
+                          return object?.type === "pdf" ? viewportRectFromCanvas(getMaterialBounds(object)) : undefined;
+                        })()
+                  }
                   onPageChange={(page) => {
                     const object = objects.find((item) => item.id === selectedId);
                     if (object?.type === "pdf") {
@@ -830,6 +1107,7 @@ function Toolbar({
 }) {
   const tools = [
     { id: "select", label: "Select", icon: MousePointer2 },
+    { id: "hand", label: "Pan", icon: Hand },
     { id: "text", label: "Text", icon: Type },
     { id: "pencil", label: "Pencil", icon: Pencil },
     { id: "highlighter", label: "Highlighter", icon: Highlighter },
@@ -1509,10 +1787,12 @@ function usePdfPageImage(url: string, page: number) {
 
 function InlineTextEditor({
   object,
+  viewportScale,
   onChange,
   onDone
 }: {
   object?: WhiteboardObject;
+  viewportScale: number;
   onChange: (text: string) => void;
   onDone: (text: string) => void;
 }) {
@@ -1538,7 +1818,7 @@ function InlineTextEditor({
         top: object.y,
         width: Math.max(160, object.width),
         height: Math.max(48, object.height),
-        fontSize: Number(object.data.fontSize ?? 28),
+        fontSize: Number(object.data.fontSize ?? 28) * viewportScale,
         transform: `rotate(${object.rotation}deg)`,
         transformOrigin: "top left"
       }}
@@ -1625,4 +1905,80 @@ function boardPatchToMaterialPatch(patch: Partial<WhiteboardObject>, bounds: { x
   }
 
   return next;
+}
+
+function getExportBounds(
+  objects: WhiteboardObject[],
+  materials: WhiteboardObject[],
+  fullscreenMaterial: WhiteboardObject | null,
+  fullscreenBounds: { x: number; y: number; width: number; height: number } | null
+) {
+  const visibleObjects = objects
+    .filter((object) => {
+      if (fullscreenMaterial) {
+        return object.id === fullscreenMaterial.id || object.parent_material_id === fullscreenMaterial.id;
+      }
+
+      if (!object.parent_material_id) return object.data.displayState !== "minimized";
+      const material = materials.find((item) => item.id === object.parent_material_id);
+      if (!material || material.data.displayState === "minimized") return false;
+      if (material.type !== "pdf") return true;
+      return object.page_number === null || object.page_number === Number(material.data.page ?? 1);
+    })
+    .map((object) => {
+      if (!object.parent_material_id) {
+        if (fullscreenMaterial?.id === object.id && fullscreenBounds) return { ...object, ...fullscreenBounds };
+        return object;
+      }
+
+      const material = materials.find((item) => item.id === object.parent_material_id);
+      if (!material) return object;
+      return materialAnnotationToBoard(object, fullscreenMaterial?.id === material.id && fullscreenBounds ? fullscreenBounds : getMaterialBounds(material));
+    });
+
+  if (!visibleObjects.length) {
+    return {
+      x: Math.max(0, fullscreenBounds?.x ?? 0),
+      y: Math.max(0, fullscreenBounds?.y ?? 0),
+      width: Math.min(CANVAS_WIDTH, fullscreenBounds?.width ?? 1200),
+      height: Math.min(CANVAS_HEIGHT, fullscreenBounds?.height ?? 760)
+    };
+  }
+
+  const boxes = visibleObjects.map(getObjectBounds);
+  const margin = 80;
+  const minX = Math.max(0, Math.min(...boxes.map((box) => box.x)) - margin);
+  const minY = Math.max(0, Math.min(...boxes.map((box) => box.y)) - margin);
+  const maxX = Math.min(CANVAS_WIDTH, Math.max(...boxes.map((box) => box.x + box.width)) + margin);
+  const maxY = Math.min(CANVAS_HEIGHT, Math.max(...boxes.map((box) => box.y + box.height)) + margin);
+
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(320, maxX - minX),
+    height: Math.max(240, maxY - minY)
+  };
+}
+
+function getObjectBounds(object: WhiteboardObject) {
+  if ((object.type === "pencil_stroke" || object.type === "highlighter_stroke" || object.type === "arrow") && Array.isArray(object.data.points)) {
+    const points = object.data.points as number[];
+    const xs = points.filter((_, index) => index % 2 === 0);
+    const ys = points.filter((_, index) => index % 2 === 1);
+    if (xs.length && ys.length) {
+      const strokeWidth = Number(object.data.strokeWidth ?? 4);
+      const minX = Math.min(...xs) + object.x - strokeWidth;
+      const minY = Math.min(...ys) + object.y - strokeWidth;
+      const maxX = Math.max(...xs) + object.x + strokeWidth;
+      const maxY = Math.max(...ys) + object.y + strokeWidth;
+      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    }
+  }
+
+  return {
+    x: object.x,
+    y: object.y,
+    width: Math.max(1, object.width),
+    height: Math.max(1, object.height)
+  };
 }

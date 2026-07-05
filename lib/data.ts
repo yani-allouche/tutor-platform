@@ -122,6 +122,19 @@ export async function getLessons(limit?: number): Promise<LessonSummary[]> {
   return mapLessonSummaries((data ?? []) as unknown as LessonSummaryRow[]);
 }
 
+export async function getLessonSwitcherOptions(): Promise<LessonSummary[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("lessons")
+    .select("id,title,lesson_date,updated_at,students(name),boards(id)")
+    .is("deleted_at", null)
+    .order("lesson_date", { ascending: true })
+    .order("updated_at", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return mapLessonSummaries((data ?? []) as unknown as LessonSummaryRow[]);
+}
+
 export async function getLesson(id: string): Promise<Lesson> {
   const supabase = await createClient();
   const { data, error } = await supabase
