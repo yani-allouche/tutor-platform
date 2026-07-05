@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Stage, Layer, Rect, Ellipse, Text, Line, Arrow, Transformer } from "react-konva";
+import { Stage, Layer, Rect, Ellipse, Text, Line, Arrow, Transformer, RegularPolygon } from "react-konva";
 import type Konva from "konva";
 import {
   ArrowDown,
@@ -36,6 +36,10 @@ type LessonEditorData = {
 
 const CANVAS_WIDTH = 1120;
 const CANVAS_HEIGHT = 720;
+const DRAW_COLORS = ["#172026", "#2f6f5e", "#d95f49", "#2563eb", "#7c3aed"];
+const HIGHLIGHT_COLORS = ["#f5c542", "#90e0ef", "#b9fbc0", "#ffadad", "#d8b4fe"];
+const SHAPE_FILLS = ["rgba(47, 111, 94, 0.08)", "rgba(37, 99, 235, 0.10)", "rgba(217, 95, 73, 0.10)", "rgba(245, 197, 66, 0.18)", "transparent"];
+const SHAPES = ["rect", "ellipse", "triangle", "diamond"] as const;
 
 export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; boards: Board[] }) {
   const router = useRouter();
@@ -45,6 +49,18 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
   const [objects, setObjects] = useState<WhiteboardObject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [textColor, setTextColor] = useState("#172026");
+  const [textSize, setTextSize] = useState(28);
+  const [penColor, setPenColor] = useState("#172026");
+  const [penWidth, setPenWidth] = useState(4);
+  const [highlightColor, setHighlightColor] = useState("#f5c542");
+  const [highlightWidth, setHighlightWidth] = useState(18);
+  const [shapeKind, setShapeKind] = useState<(typeof SHAPES)[number]>("rect");
+  const [shapeStroke, setShapeStroke] = useState("#2f6f5e");
+  const [shapeFill, setShapeFill] = useState("rgba(47, 111, 94, 0.08)");
+  const [shapeStrokeWidth, setShapeStrokeWidth] = useState(3);
+  const [arrowColor, setArrowColor] = useState("#d95f49");
+  const [arrowWidth, setArrowWidth] = useState(4);
   const [isDrawing, setIsDrawing] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [history, setHistory] = useState<WhiteboardObject[][]>([]);
@@ -145,21 +161,21 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
         ? {
             ...base,
             width: 260,
-            height: 56,
-            data: { text: "Double-click to edit", fontSize: 28, fill: "#172026" }
+            height: Math.max(56, textSize + 24),
+            data: { text: "Type here", fontSize: textSize, fill: textColor }
           }
         : type === "shape"
           ? {
               ...base,
               width: 180,
               height: 110,
-              data: { shape: "rect", stroke: "#2f6f5e", strokeWidth: 3, fill: "rgba(47, 111, 94, 0.08)" }
+              data: { shape: shapeKind, stroke: shapeStroke, strokeWidth: shapeStrokeWidth, fill: shapeFill }
             }
           : {
               ...base,
               width: 220,
               height: 80,
-              data: { points: [0, 0, 220, 80], stroke: "#d95f49", strokeWidth: 4 }
+              data: { points: [0, 0, 220, 80], stroke: arrowColor, strokeWidth: arrowWidth }
             };
 
     updateObjects([...objects, object]);
@@ -182,8 +198,9 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
     }
 
     if (tool === "delete") {
-      if (selectedId) removeObject(selectedId);
-      else if (!isStage) removeObject(event.target.id());
+      const targetId = findObjectId(event.target);
+      if (targetId) removeObject(targetId);
+      else if (selectedId) removeObject(selectedId);
       return;
     }
 
@@ -215,8 +232,8 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
         z_index: objects.length,
         data: {
           points: [pointer.x, pointer.y],
-          stroke: tool === "pencil" ? "#172026" : "#f5c542",
-          strokeWidth: tool === "pencil" ? 4 : 18,
+          stroke: tool === "pencil" ? penColor : highlightColor,
+          strokeWidth: tool === "pencil" ? penWidth : highlightWidth,
           opacity: tool === "pencil" ? 1 : 0.38
         }
       };
@@ -289,6 +306,16 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
       await action();
       router.refresh();
     });
+  }
+
+  function findObjectId(node: Konva.Node | null) {
+    let current: Konva.Node | null = node;
+    while (current) {
+      const id = current.id();
+      if (objects.some((object) => object.id === id)) return id;
+      current = current.getParent();
+    }
+    return null;
   }
 
   return (
@@ -413,6 +440,46 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
           />
 
           <div className="overflow-auto p-4">
+            <ToolOptions
+              tool={tool}
+              selectedObject={objects.find((object) => object.id === selectedId)}
+              textColor={textColor}
+              setTextColor={(color) => {
+                setTextColor(color);
+                if (selectedId) {
+                  const object = objects.find((item) => item.id === selectedId);
+                  if (object?.type === "text") patchObject(object.id, { data: { ...object.data, fill: color } });
+                }
+              }}
+              textSize={textSize}
+              setTextSize={(size) => {
+                setTextSize(size);
+                if (selectedId) {
+                  const object = objects.find((item) => item.id === selectedId);
+                  if (object?.type === "text") patchObject(object.id, { data: { ...object.data, fontSize: size } });
+                }
+              }}
+              penColor={penColor}
+              setPenColor={setPenColor}
+              penWidth={penWidth}
+              setPenWidth={setPenWidth}
+              highlightColor={highlightColor}
+              setHighlightColor={setHighlightColor}
+              highlightWidth={highlightWidth}
+              setHighlightWidth={setHighlightWidth}
+              shapeKind={shapeKind}
+              setShapeKind={setShapeKind}
+              shapeStroke={shapeStroke}
+              setShapeStroke={setShapeStroke}
+              shapeFill={shapeFill}
+              setShapeFill={setShapeFill}
+              shapeStrokeWidth={shapeStrokeWidth}
+              setShapeStrokeWidth={setShapeStrokeWidth}
+              arrowColor={arrowColor}
+              setArrowColor={setArrowColor}
+              arrowWidth={arrowWidth}
+              setArrowWidth={setArrowWidth}
+            />
             <div className="relative h-[720px] w-[1120px] overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm">
               <Stage
                 ref={stageRef}
@@ -432,7 +499,9 @@ export function ClassroomEditor({ lesson, boards }: { lesson: LessonEditorData; 
                       key={object.id}
                       object={object}
                       selected={selectedId === object.id}
-                      onSelect={() => setSelectedId(object.id)}
+                      onSelect={() => {
+                        if (tool !== "delete") setSelectedId(object.id);
+                      }}
                       onChange={(patch) => patchObject(object.id, patch)}
                       onTextEdit={() => setEditingTextId(object.id)}
                     />
@@ -523,6 +592,175 @@ function Toolbar({
   );
 }
 
+function ToolOptions({
+  tool,
+  selectedObject,
+  textColor,
+  setTextColor,
+  textSize,
+  setTextSize,
+  penColor,
+  setPenColor,
+  penWidth,
+  setPenWidth,
+  highlightColor,
+  setHighlightColor,
+  highlightWidth,
+  setHighlightWidth,
+  shapeKind,
+  setShapeKind,
+  shapeStroke,
+  setShapeStroke,
+  shapeFill,
+  setShapeFill,
+  shapeStrokeWidth,
+  setShapeStrokeWidth,
+  arrowColor,
+  setArrowColor,
+  arrowWidth,
+  setArrowWidth
+}: {
+  tool: Tool;
+  selectedObject?: WhiteboardObject;
+  textColor: string;
+  setTextColor: (color: string) => void;
+  textSize: number;
+  setTextSize: (size: number) => void;
+  penColor: string;
+  setPenColor: (color: string) => void;
+  penWidth: number;
+  setPenWidth: (width: number) => void;
+  highlightColor: string;
+  setHighlightColor: (color: string) => void;
+  highlightWidth: number;
+  setHighlightWidth: (width: number) => void;
+  shapeKind: (typeof SHAPES)[number];
+  setShapeKind: (shape: (typeof SHAPES)[number]) => void;
+  shapeStroke: string;
+  setShapeStroke: (color: string) => void;
+  shapeFill: string;
+  setShapeFill: (color: string) => void;
+  shapeStrokeWidth: number;
+  setShapeStrokeWidth: (width: number) => void;
+  arrowColor: string;
+  setArrowColor: (color: string) => void;
+  arrowWidth: number;
+  setArrowWidth: (width: number) => void;
+}) {
+  const activeTool = selectedObject?.type === "text" ? "text" : tool;
+
+  return (
+    <div className="mb-3 flex min-h-12 flex-wrap items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
+      {activeTool === "text" ? (
+        <>
+          <ColorSwatches colors={DRAW_COLORS} value={textColor} onChange={setTextColor} label="Text color" />
+          <NumberControl label="Size" min={16} max={64} value={textSize} onChange={setTextSize} />
+        </>
+      ) : null}
+
+      {tool === "pencil" ? (
+        <>
+          <ColorSwatches colors={DRAW_COLORS} value={penColor} onChange={setPenColor} label="Pencil color" />
+          <NumberControl label="Width" min={1} max={16} value={penWidth} onChange={setPenWidth} />
+        </>
+      ) : null}
+
+      {tool === "highlighter" ? (
+        <>
+          <ColorSwatches colors={HIGHLIGHT_COLORS} value={highlightColor} onChange={setHighlightColor} label="Highlighter color" />
+          <NumberControl label="Width" min={8} max={40} value={highlightWidth} onChange={setHighlightWidth} />
+        </>
+      ) : null}
+
+      {tool === "shape" ? (
+        <>
+          <select
+            className="field w-32 py-1.5"
+            value={shapeKind}
+            onChange={(event) => setShapeKind(event.target.value as (typeof SHAPES)[number])}
+            aria-label="Shape type"
+          >
+            <option value="rect">Rectangle</option>
+            <option value="ellipse">Ellipse</option>
+            <option value="triangle">Triangle</option>
+            <option value="diamond">Diamond</option>
+          </select>
+          <ColorSwatches colors={DRAW_COLORS} value={shapeStroke} onChange={setShapeStroke} label="Shape outline" />
+          <ColorSwatches colors={SHAPE_FILLS} value={shapeFill} onChange={setShapeFill} label="Shape fill" />
+          <NumberControl label="Line" min={1} max={12} value={shapeStrokeWidth} onChange={setShapeStrokeWidth} />
+        </>
+      ) : null}
+
+      {tool === "arrow" ? (
+        <>
+          <ColorSwatches colors={DRAW_COLORS} value={arrowColor} onChange={setArrowColor} label="Arrow color" />
+          <NumberControl label="Width" min={1} max={14} value={arrowWidth} onChange={setArrowWidth} />
+        </>
+      ) : null}
+
+      {tool === "select" && !selectedObject ? <span className="text-sm text-slate-500">Select or choose a tool</span> : null}
+      {tool === "delete" ? <span className="text-sm text-coral">Click an object to delete it</span> : null}
+    </div>
+  );
+}
+
+function ColorSwatches({
+  colors,
+  value,
+  onChange,
+  label
+}: {
+  colors: string[];
+  value: string;
+  onChange: (color: string) => void;
+  label: string;
+}) {
+  return (
+    <div className="flex items-center gap-1.5" aria-label={label}>
+      {colors.map((color) => (
+        <button
+          key={color}
+          type="button"
+          className={`size-7 rounded-md border ${value === color ? "border-ink ring-2 ring-leaf/30" : "border-slate-300"}`}
+          style={{ backgroundColor: color === "transparent" ? "#ffffff" : color }}
+          onClick={() => onChange(color)}
+          title={label}
+          aria-label={`${label} ${color}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function NumberControl({
+  label,
+  min,
+  max,
+  value,
+  onChange
+}: {
+  label: string;
+  min: number;
+  max: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm text-slate-600">
+      {label}
+      <input
+        className="h-2 w-24 accent-leaf"
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+      <span className="w-6 text-right text-xs tabular-nums text-slate-500">{value}</span>
+    </label>
+  );
+}
+
 function WhiteboardNode({
   object,
   selected,
@@ -563,6 +801,30 @@ function WhiteboardNode({
     }
   };
 
+  function centeredDragEnd(event: Konva.KonvaEventObject<DragEvent>) {
+    onChange({
+      x: event.target.x() - object.width / 2,
+      y: event.target.y() - object.height / 2
+    });
+  }
+
+  function centeredTransformEnd(event: Konva.KonvaEventObject<Event>) {
+    const node = event.target;
+    const scaleX = node.scaleX();
+    const scaleY = node.scaleY();
+    const nextWidth = Math.max(12, object.width * scaleX);
+    const nextHeight = Math.max(12, object.height * scaleY);
+    node.scaleX(1);
+    node.scaleY(1);
+    onChange({
+      x: node.x() - nextWidth / 2,
+      y: node.y() - nextHeight / 2,
+      width: nextWidth,
+      height: nextHeight,
+      rotation: node.rotation()
+    });
+  }
+
   if (object.type === "text") {
     return (
       <Text
@@ -583,16 +845,53 @@ function WhiteboardNode({
 
   if (object.type === "shape") {
     const shape = String(object.data.shape ?? "rect");
-    const props = {
+    const shapeProps = {
       ...common,
-      width: object.width,
-      height: object.height,
       stroke: String(object.data.stroke ?? "#2f6f5e"),
       strokeWidth: Number(object.data.strokeWidth ?? 3),
       fill: String(object.data.fill ?? "rgba(47, 111, 94, 0.08)")
     };
 
-    return shape === "ellipse" ? <Ellipse {...props} radiusX={object.width / 2} radiusY={object.height / 2} /> : <Rect {...props} />;
+    if (shape === "ellipse") {
+      return (
+        <Ellipse
+          {...shapeProps}
+          x={object.x + object.width / 2}
+          y={object.y + object.height / 2}
+          radiusX={object.width / 2}
+          radiusY={object.height / 2}
+          onDragEnd={centeredDragEnd}
+          onTransformEnd={centeredTransformEnd}
+        />
+      );
+    }
+
+    if (shape === "triangle") {
+      return (
+        <RegularPolygon
+          {...shapeProps}
+          x={object.x + object.width / 2}
+          y={object.y + object.height / 2}
+          sides={3}
+          radius={Math.max(object.width, object.height) / 2}
+          onDragEnd={centeredDragEnd}
+          onTransformEnd={centeredTransformEnd}
+        />
+      );
+    }
+
+    if (shape === "diamond") {
+      return (
+        <Line
+          {...shapeProps}
+          points={[object.width / 2, 0, object.width, object.height / 2, object.width / 2, object.height, 0, object.height / 2]}
+          closed
+          hitStrokeWidth={18}
+        />
+      );
+    }
+
+    return <Rect {...shapeProps} width={object.width} height={object.height} />;
   }
 
   if (object.type === "arrow") {
@@ -604,6 +903,7 @@ function WhiteboardNode({
         stroke={String(object.data.stroke ?? "#d95f49")}
         fill={String(object.data.stroke ?? "#d95f49")}
         strokeWidth={Number(object.data.strokeWidth ?? 4)}
+        hitStrokeWidth={24}
       />
     );
   }
@@ -619,6 +919,7 @@ function WhiteboardNode({
       tension={0.35}
       lineCap="round"
       lineJoin="round"
+      hitStrokeWidth={Math.max(24, Number(object.data.strokeWidth ?? 4) + 14)}
       globalCompositeOperation={object.type === "highlighter_stroke" ? "multiply" : "source-over"}
     />
   );
