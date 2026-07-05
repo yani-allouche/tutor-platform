@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #172026;
+  background: #f5f7f8;
+}
+
+body {
+  min-height: 100vh;
+}
+
+input,
+select,
+textarea {
+  color: #172026;
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-leaf px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-[#285f51] focus:outline-none focus:ring-2 focus:ring-leaf focus:ring-offset-2;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-ink shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-leaf focus:ring-offset-2;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-coral px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-[#c85441] focus:outline-none focus:ring-2 focus:ring-coral focus:ring-offset-2;
+  }
+
+  .field {
+    @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-leaf focus:ring-2 focus:ring-leaf/20;
+  }
+
+  .label {
+    @apply text-sm font-medium text-slate-700;
+  }
+
+  .panel {
+    @apply rounded-lg border border-slate-200 bg-white shadow-sm;
+  }
+}
