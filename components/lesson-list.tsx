@@ -11,7 +11,6 @@ export function LessonList({ lessons, showActions = true }: { lessons: LessonSum
         <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3">Title</th>
               <th className="px-4 py-3">Student</th>
               <th className="px-4 py-3">Lesson date</th>
               <th className="px-4 py-3">Last updated</th>
@@ -22,13 +21,12 @@ export function LessonList({ lessons, showActions = true }: { lessons: LessonSum
           <tbody className="divide-y divide-slate-100 bg-white">
             {lessons.map((lesson) => (
               <tr key={lesson.id}>
-                <td className="px-4 py-3 font-medium text-ink">
+                <td className="px-4 py-3 font-medium text-ink">{lesson.student_name ?? "Unlinked"}</td>
+                <td className="px-4 py-3 text-slate-600">
                   <Link className="hover:underline" href={`/lessons/${lesson.id}`}>
-                    {lesson.title}
+                    {formatDate(lesson.lesson_date)}
                   </Link>
                 </td>
-                <td className="px-4 py-3 text-slate-600">{lesson.student_name ?? "Unlinked"}</td>
-                <td className="px-4 py-3 text-slate-600">{formatDate(lesson.lesson_date)}</td>
                 <td className="px-4 py-3 text-slate-600">{formatDateTime(lesson.updated_at)}</td>
                 <td className="px-4 py-3 text-slate-600">{lesson.board_count}</td>
                 {showActions ? (

@@ -15,12 +15,6 @@ export function LessonForm({
 }) {
   return (
     <form action={action} className="panel grid gap-5 p-5 sm:grid-cols-2">
-      <div className="space-y-1.5 sm:col-span-2">
-        <label className="label" htmlFor="title">
-          Title
-        </label>
-        <input className="field" id="title" name="title" defaultValue={lesson?.title} required />
-      </div>
       <div className="space-y-1.5">
         <label className="label" htmlFor="student_id">
           Student
@@ -46,24 +40,6 @@ export function LessonForm({
           defaultValue={lesson?.lesson_date ?? new Date().toISOString().slice(0, 10)}
           required
         />
-      </div>
-      <div className="space-y-1.5">
-        <label className="label" htmlFor="topic">
-          Topic
-        </label>
-        <input className="field" id="topic" name="topic" defaultValue={lesson?.topic} />
-      </div>
-      <div className="space-y-1.5">
-        <label className="label" htmlFor="tags">
-          Tags
-        </label>
-        <input className="field" id="tags" name="tags" defaultValue={lesson?.tags?.join(", ")} />
-      </div>
-      <div className="space-y-1.5 sm:col-span-2">
-        <label className="label" htmlFor="objective">
-          Objective
-        </label>
-        <textarea className="field min-h-28" id="objective" name="objective" defaultValue={lesson?.objective} />
       </div>
       <div className="flex justify-end sm:col-span-2">
         <button className="btn-primary" type="submit">

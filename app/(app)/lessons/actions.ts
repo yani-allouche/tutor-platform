@@ -4,17 +4,17 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTutorId } from "@/lib/data";
-import { splitTags } from "@/lib/format";
 
 function lessonPayload(formData: FormData) {
   const studentId = String(formData.get("student_id") ?? "").trim();
+  const lessonDate = String(formData.get("lesson_date") ?? "").trim();
   return {
     student_id: studentId || null,
-    title: String(formData.get("title") ?? "").trim(),
-    lesson_date: String(formData.get("lesson_date") ?? "").trim(),
-    objective: String(formData.get("objective") ?? "").trim(),
-    topic: String(formData.get("topic") ?? "").trim(),
-    tags: splitTags(formData.get("tags"))
+    title: lessonDate ? `Lesson ${lessonDate}` : "Lesson",
+    lesson_date: lessonDate,
+    objective: "",
+    topic: "",
+    tags: []
   };
 }
 

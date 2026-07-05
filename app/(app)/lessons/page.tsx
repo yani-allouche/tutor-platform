@@ -12,7 +12,7 @@ export default async function LessonsPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Lessons"
-        description="Prepared sessions and classroom workspaces."
+        description="Classroom workspaces by student and date."
         action={
           <Link className="btn-primary" href="/lessons/new">
             <Plus size={16} aria-hidden="true" />

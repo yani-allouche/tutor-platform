@@ -27,9 +27,6 @@ export type Lesson = {
   student_id: string | null;
   title: string;
   lesson_date: string;
-  objective: string;
-  topic: string;
-  tags: string[];
   created_at: string;
   updated_at: string;
 };

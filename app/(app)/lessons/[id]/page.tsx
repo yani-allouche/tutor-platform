@@ -13,8 +13,8 @@ export default async function LessonDetailPage({ params }: { params: Promise<{ i
   return (
     <div className="mx-auto max-w-5xl">
       <PageHeader
-        title={lesson.title}
-        description={`${formatDate(lesson.lesson_date)} · ${student?.name ?? "Unlinked lesson"}`}
+        title={formatDate(lesson.lesson_date)}
+        description={student?.name ?? "Unlinked lesson"}
         action={
           <>
             <Link className="btn-secondary" href={`/lessons/${lesson.id}/edit`}>
@@ -39,29 +39,15 @@ export default async function LessonDetailPage({ params }: { params: Promise<{ i
 
       <div className="grid gap-4 md:grid-cols-[1fr_280px]">
         <section className="panel p-5">
-          <h2 className="mb-3 text-base font-semibold text-ink">Lesson plan</h2>
+          <h2 className="mb-3 text-base font-semibold text-ink">Lesson details</h2>
           <dl className="grid gap-4 text-sm">
             <div>
-              <dt className="font-medium text-slate-700">Topic</dt>
-              <dd className="mt-1 text-slate-600">{lesson.topic || "No topic added."}</dd>
+              <dt className="font-medium text-slate-700">Student</dt>
+              <dd className="mt-1 text-slate-600">{student?.name ?? "Unlinked"}</dd>
             </div>
             <div>
-              <dt className="font-medium text-slate-700">Objective</dt>
-              <dd className="mt-1 whitespace-pre-wrap text-slate-600">{lesson.objective || "No objective added."}</dd>
-            </div>
-            <div>
-              <dt className="font-medium text-slate-700">Tags</dt>
-              <dd className="mt-2 flex flex-wrap gap-2">
-                {lesson.tags.length ? (
-                  lesson.tags.map((tag) => (
-                    <span key={tag} className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
-                      {tag}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-slate-600">No tags.</span>
-                )}
-              </dd>
+              <dt className="font-medium text-slate-700">Date</dt>
+              <dd className="mt-1 text-slate-600">{formatDate(lesson.lesson_date)}</dd>
             </div>
           </dl>
         </section>

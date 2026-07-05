@@ -126,7 +126,7 @@ export async function getLesson(id: string): Promise<Lesson> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("lessons")
-    .select("id,student_id,title,lesson_date,objective,topic,tags,created_at,updated_at")
+    .select("id,student_id,title,lesson_date,created_at,updated_at")
     .eq("id", id)
     .is("deleted_at", null)
     .single();

@@ -9,7 +9,7 @@ export default async function EditLessonPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader title="Edit lesson" description={lesson.title} />
+      <PageHeader title="Edit lesson" description="Update the student or date." />
       <LessonForm action={updateLesson.bind(null, lesson.id)} lesson={lesson} students={students} submitLabel="Save lesson" />
     </div>
   );

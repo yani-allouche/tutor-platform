@@ -12,7 +12,7 @@ export default async function NewLessonPage({
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader title="New lesson" description="Create a lesson with or without a linked student." />
+      <PageHeader title="New lesson" description="Choose a student and date." />
       <LessonForm
         action={createLesson}
         students={students}
