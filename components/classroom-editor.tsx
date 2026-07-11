@@ -2217,7 +2217,7 @@ function InlineTextEditor({
   return (
     <textarea
       ref={ref}
-      className="absolute resize-none rounded-sm border border-leaf bg-white/95 p-1.5 text-ink outline-none ring-2 ring-leaf/20"
+      className="absolute resize-none rounded-sm border border-leaf/70 bg-white/55 p-1.5 text-ink outline-none ring-2 ring-leaf/20 backdrop-blur-[1px]"
       style={{
         left: object.x,
         top: object.y,
