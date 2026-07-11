@@ -843,6 +843,7 @@ export function ClassroomEditor({
                             if (tool === "select") setSelectedId(object.id);
                           }}
                           draggable={tool === "select"}
+                          listening
                           onChange={(patch) => patchObject(object.id, patch)}
                           onTextEdit={() => setEditingTextId(object.id)}
                           onPdfPageChange={() => undefined}
@@ -876,6 +877,7 @@ export function ClassroomEditor({
                           }
                         }}
                         draggable={false}
+                        listening={false}
                         onHover={(hovered) => setMaterialHover(object.id, hovered)}
                         onChange={(patch) => patchObject(object.id, patch)}
                         onTextEdit={() => undefined}
@@ -919,6 +921,7 @@ export function ClassroomEditor({
                             if (tool === "select") setSelectedId(annotation.id);
                           }}
                           draggable={tool === "select"}
+                          listening
                           onChange={(patch) => patchObject(annotation.id, boardPatchToMaterialPatch(patch, materialBounds))}
                           onTextEdit={() => setEditingTextId(annotation.id)}
                           onPdfPageChange={() => undefined}
@@ -1309,6 +1312,7 @@ function WhiteboardNode({
   selected,
   onSelect,
   draggable,
+  listening,
   onChange,
   onTextEdit,
   onPdfPageChange,
@@ -1319,6 +1323,7 @@ function WhiteboardNode({
   selected: boolean;
   onSelect: () => void;
   draggable: boolean;
+  listening: boolean;
   onChange: (patch: Partial<WhiteboardObject>) => void;
   onTextEdit: () => void;
   onPdfPageChange: (page: number, pageCount?: number) => void;
@@ -1331,6 +1336,7 @@ function WhiteboardNode({
     y: object.y,
     rotation: object.rotation,
     draggable,
+    listening,
     onClick: (event: Konva.KonvaEventObject<MouseEvent>) => {
       event.cancelBubble = true;
       onSelect();
@@ -1813,7 +1819,11 @@ function InlineTextEditor({
         width: Math.max(160, object.width),
         height: Math.max(48, object.height),
         fontSize: Number(object.data.fontSize ?? 28) * viewportScale,
+        background: "transparent",
         backgroundColor: "transparent",
+        boxShadow: "none",
+        caretColor: String(object.data.fill ?? "#172026"),
+        color: String(object.data.fill ?? "#172026"),
         WebkitAppearance: "none",
         transform: `rotate(${object.rotation}deg)`,
         transformOrigin: "top left"
