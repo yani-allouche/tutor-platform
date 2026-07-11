@@ -295,7 +295,7 @@ export function ClassroomEditor({
       const payload = (await response.json()) as { object?: WhiteboardObject; error?: string };
       if (!response.ok || !payload.object) throw new Error(payload.error ?? "Upload failed");
       updateObjects([...objects, payload.object]);
-      setSelectedId(payload.object.id);
+      openReaderForObject(payload.object);
       setTool("select");
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "Upload failed");
@@ -432,6 +432,15 @@ export function ClassroomEditor({
   function handleWheel(event: Konva.KonvaEventObject<WheelEvent>) {
     event.evt.preventDefault();
     const pointer = stageRef.current?.getPointerPosition() ?? { x: viewportSize.width / 2, y: viewportSize.height / 2 };
+    const canvasPointer = viewportToCanvas(pointer);
+
+    if (fullscreenMaterial && isPointInsideBounds(canvasPointer, readerWindow)) {
+      if (event.evt.ctrlKey || event.evt.metaKey) {
+        const direction = event.evt.deltaY > 0 ? -1 : 1;
+        setReaderZoom((current) => Math.min(3, Math.max(0.4, current * (direction > 0 ? 1.08 : 0.92))));
+      }
+      return;
+    }
 
     if (event.evt.ctrlKey || event.evt.metaKey) {
       const direction = event.evt.deltaY > 0 ? -1 : 1;
@@ -690,7 +699,14 @@ export function ClassroomEditor({
   }
 
   function openReader(id: string) {
-    patchMaterialData(id, { displayState: "normal" });
+    const object = objects.find((item) => item.id === id);
+    if (object) openReaderForObject(object);
+  }
+
+  function openReaderForObject(object: WhiteboardObject) {
+    if (objects.some((item) => item.id === object.id)) {
+      patchObject(object.id, { data: { ...object.data, displayState: "normal" } }, false);
+    }
     const visible = visibleCanvasBounds;
     const width = Math.min(900 / viewportScale, visible.width - 48 / viewportScale);
     const height = Math.min(680 / viewportScale, visible.height - 48 / viewportScale);
@@ -702,8 +718,8 @@ export function ClassroomEditor({
     });
     setReaderRestoreWindow(null);
     setReaderMaximized(false);
-    setFullscreenMaterialId(id);
-    setSelectedId(id);
+    setFullscreenMaterialId(object.id);
+    setSelectedId(object.id);
     setReaderZoom(1);
     setReaderFitMode("page");
   }
