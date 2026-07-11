@@ -857,7 +857,8 @@ export function ClassroomEditor({
                       : objects
                           .filter((item) => item.parent_material_id === object.id)
                           .filter((item) => item.page_number === null || item.page_number === materialPage)
-                          .map((item) => materialAnnotationToBoard(item, materialBounds));
+                          .map((item) => materialAnnotationToBoard(item, materialBounds))
+                          .sort((a, b) => (a.type === "text" ? 1 : 0) - (b.type === "text" ? 1 : 0));
 
                     return [
                       <WhiteboardNode
@@ -872,7 +873,7 @@ export function ClassroomEditor({
                           }
                           setSelectedId(object.id);
                         }}
-                        draggable={tool === "select"}
+                        draggable={tool === "select" && object.data.displayMode !== "fullBoard"}
                         onHover={(hovered) => setMaterialHover(object.id, hovered)}
                         onChange={(patch) => patchObject(object.id, patch)}
                         onTextEdit={() => undefined}
@@ -1792,7 +1793,7 @@ function InlineTextEditor({
   return (
     <textarea
       ref={ref}
-      className="absolute resize-none rounded-sm border border-leaf/70 bg-white/55 p-1.5 text-ink outline-none ring-2 ring-leaf/20 backdrop-blur-[1px]"
+      className="absolute resize-none rounded-sm border border-leaf/70 bg-transparent p-1.5 text-ink outline-none ring-2 ring-leaf/25"
       style={{
         left: object.x,
         top: object.y,
