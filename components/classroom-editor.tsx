@@ -152,7 +152,7 @@ export function ClassroomEditor({
     if (!transformerRef.current || !stageRef.current) return;
 
     const selectedObject = selectedId ? objects.find((object) => object.id === selectedId) : null;
-    const canTransformSelected = selectedObject?.data.displayMode !== "fullBoard";
+    const canTransformSelected = selectedObject ? !isMaterialObject(selectedObject) : false;
     const selectedNode = tool === "select" && selectedId && canTransformSelected ? stageRef.current.findOne(`#${selectedId}`) : null;
     transformerRef.current.nodes(selectedNode ? [selectedNode] : []);
     transformerRef.current.getLayer()?.batchDraw();
@@ -831,6 +831,8 @@ export function ClassroomEditor({
                 <Layer>
                   <Rect name="canvas-background" width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="#ffffff" />
                   {rootObjects.filter((object) => object.data.displayState !== "minimized").flatMap((object) => {
+                    if (object.id === editingTextId) return [];
+
                     if (!isMaterialObject(object)) {
                       return [
                         <WhiteboardNode
@@ -857,6 +859,7 @@ export function ClassroomEditor({
                       : objects
                           .filter((item) => item.parent_material_id === object.id)
                           .filter((item) => item.page_number === null || item.page_number === materialPage)
+                          .filter((item) => item.id !== editingTextId)
                           .map((item) => materialAnnotationToBoard(item, materialBounds))
                           .sort((a, b) => (a.type === "text" ? 1 : 0) - (b.type === "text" ? 1 : 0));
 
@@ -949,10 +952,6 @@ export function ClassroomEditor({
                 <InlineTextEditor
                   object={getEditingTextObject() ? objectToViewport(getEditingTextObject()!) : undefined}
                   viewportScale={viewportScale}
-                  onChange={(text) => {
-                    const object = objects.find((item) => item.id === editingTextId);
-                    if (object) patchObject(object.id, { data: { ...object.data, text } }, false);
-                  }}
                   onDone={(text) => {
                     const object = objects.find((item) => item.id === editingTextId);
                     if (!object) {
@@ -1332,14 +1331,31 @@ function WhiteboardNode({
     y: object.y,
     rotation: object.rotation,
     draggable,
-    onClick: onSelect,
-    onTap: onSelect,
+    onClick: (event: Konva.KonvaEventObject<MouseEvent>) => {
+      event.cancelBubble = true;
+      onSelect();
+    },
+    onTap: (event: Konva.KonvaEventObject<Event>) => {
+      event.cancelBubble = true;
+      onSelect();
+    },
+    onMouseDown: (event: Konva.KonvaEventObject<MouseEvent>) => {
+      event.cancelBubble = true;
+    },
     onMouseEnter: () => onHover?.(true),
     onMouseLeave: () => onHover?.(false),
+    onDragStart: (event: Konva.KonvaEventObject<DragEvent>) => {
+      event.cancelBubble = true;
+    },
+    onDragMove: (event: Konva.KonvaEventObject<DragEvent>) => {
+      event.cancelBubble = true;
+    },
     onDragEnd: (event: Konva.KonvaEventObject<DragEvent>) => {
+      event.cancelBubble = true;
       onChange({ x: event.target.x(), y: event.target.y() });
     },
     onTransformEnd: (event: Konva.KonvaEventObject<Event>) => {
+      event.cancelBubble = true;
       const node = event.target;
       const scaleX = node.scaleX();
       const scaleY = node.scaleY();
@@ -1768,12 +1784,10 @@ function usePdfPageImage(url: string, page: number) {
 function InlineTextEditor({
   object,
   viewportScale,
-  onChange,
   onDone
 }: {
   object?: WhiteboardObject;
   viewportScale: number;
-  onChange: (text: string) => void;
   onDone: (text: string) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -1805,7 +1819,6 @@ function InlineTextEditor({
         transformOrigin: "top left"
       }}
       defaultValue={String(object.data.text ?? "")}
-      onChange={(event) => onChange(event.target.value)}
       onBlur={finishEditing}
       onKeyDown={(event) => {
         if (event.key === "Escape") finishEditing();
