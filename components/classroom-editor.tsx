@@ -151,7 +151,9 @@ export function ClassroomEditor({
   useEffect(() => {
     if (!transformerRef.current || !stageRef.current) return;
 
-    const selectedNode = tool === "select" && selectedId ? stageRef.current.findOne(`#${selectedId}`) : null;
+    const selectedObject = selectedId ? objects.find((object) => object.id === selectedId) : null;
+    const canTransformSelected = selectedObject?.data.displayMode !== "fullBoard";
+    const selectedNode = tool === "select" && selectedId && canTransformSelected ? stageRef.current.findOne(`#${selectedId}`) : null;
     transformerRef.current.nodes(selectedNode ? [selectedNode] : []);
     transformerRef.current.getLayer()?.batchDraw();
   }, [selectedId, objects, tool]);
@@ -254,9 +256,12 @@ export function ClassroomEditor({
       });
       const payload = (await response.json()) as { object?: WhiteboardObject; error?: string };
       if (!response.ok || !payload.object) throw new Error(payload.error ?? "Upload failed");
-      updateObjects([...objects, payload.object]);
+      const fittedObject = fitMaterialToBoard(payload.object);
+      updateObjects([...objects, fittedObject]);
       setSelectedId(payload.object.id);
       setTool("select");
+      setViewportScale(1);
+      setStagePosition({ x: 0, y: 0 });
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "Upload failed");
     } finally {
@@ -343,6 +348,28 @@ export function ClassroomEditor({
       y: position.y,
       width: object.width * viewportScale,
       height: object.height * viewportScale
+    };
+  }
+
+  function fitMaterialToBoard(object: WhiteboardObject, sourceSize?: { width: number; height: number }): WhiteboardObject {
+    const width = Math.max(360, viewportSize.width);
+    const fallbackHeight = Math.max(320, viewportSize.height);
+    const height =
+      sourceSize && sourceSize.width > 0 && sourceSize.height > 0
+        ? Math.max(fallbackHeight, width * (sourceSize.height / sourceSize.width))
+        : fallbackHeight;
+
+    return {
+      ...object,
+      x: 0,
+      y: 0,
+      width,
+      height,
+      data: {
+        ...object.data,
+        displayMode: "fullBoard",
+        displayState: "normal"
+      }
     };
   }
 
@@ -685,29 +712,30 @@ export function ClassroomEditor({
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1">
-        <section className="grid min-h-0 grid-cols-[56px_1fr] bg-slate-100">
-          <Toolbar
-            tool={tool}
-            setTool={(nextTool) => {
-              if (nextTool === "delete" && selectedId) {
-                removeObject(selectedId);
-                setTool("select");
-                return;
-              }
-              setTool(nextTool);
-            }}
-            undo={undo}
-            redo={redo}
-            clearBoard={clearBoard}
-            canUndo={history.length > 0}
-            canRedo={future.length > 0}
-            isUploading={isUploading}
-            uploadMaterial={uploadMaterial}
-            exportBoardImage={exportBoardImage}
-          />
-
+        <section className="relative min-h-0 bg-slate-100">
           <div className="relative h-full min-w-0 overflow-hidden">
-            <div className="absolute left-4 top-4 z-20">
+            <div className="absolute left-4 top-1/2 z-30 -translate-y-1/2">
+              <Toolbar
+                tool={tool}
+                setTool={(nextTool) => {
+                  if (nextTool === "delete" && selectedId) {
+                    removeObject(selectedId);
+                    setTool("select");
+                    return;
+                  }
+                  setTool(nextTool);
+                }}
+                undo={undo}
+                redo={redo}
+                clearBoard={clearBoard}
+                canUndo={history.length > 0}
+                canRedo={future.length > 0}
+                isUploading={isUploading}
+                uploadMaterial={uploadMaterial}
+                exportBoardImage={exportBoardImage}
+              />
+            </div>
+            <div className="absolute left-20 top-4 z-20">
               <ToolOptions
                 tool={tool}
                 selectedObject={objects.find((object) => object.id === selectedId)}
@@ -835,7 +863,7 @@ export function ClassroomEditor({
                       <WhiteboardNode
                         key={object.id}
                         object={materialForRender}
-                        selected={selectedId === object.id}
+                        selected={selectedId === object.id && object.data.displayMode !== "fullBoard"}
                         onSelect={() => {
                           if (tool !== "select") return;
                           if (object.data.displayState === "minimized") {
@@ -866,7 +894,17 @@ export function ClassroomEditor({
                             object.type === "pdf"
                               ? { ...object.data, pageWidth: size.width, pageHeight: size.height }
                               : { ...object.data, naturalWidth: size.width, naturalHeight: size.height };
-                          patchObject(object.id, { data: nextData }, false);
+                          const sizePatch =
+                            object.data.displayMode === "fullBoard"
+                              ? fitMaterialToBoard({ ...object, data: nextData }, size)
+                              : { ...object, data: nextData };
+                          patchObject(object.id, {
+                            x: sizePatch.x,
+                            y: sizePatch.y,
+                            width: sizePatch.width,
+                            height: sizePatch.height,
+                            data: sizePatch.data
+                          }, false);
                         }}
                       />,
                       ...annotations.map((annotation) => (
@@ -1008,7 +1046,7 @@ function Toolbar({
   ] as const;
 
   return (
-    <div className="flex flex-col items-center gap-2 border-r border-slate-200 bg-white py-3">
+    <div className="flex flex-col items-center gap-2 rounded-md border border-slate-200 bg-white/95 px-1.5 py-2 shadow-sm">
       {tools.map((item) => {
         const Icon = item.icon;
         return (
