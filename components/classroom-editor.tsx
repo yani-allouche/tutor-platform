@@ -191,10 +191,10 @@ export function ClassroomEditor({
   useEffect(() => {
     if (!transformerRef.current || !stageRef.current) return;
 
-    const selectedNode = selectedId ? stageRef.current.findOne(`#${selectedId}`) : null;
+    const selectedNode = tool === "select" && selectedId ? stageRef.current.findOne(`#${selectedId}`) : null;
     transformerRef.current.nodes(selectedNode ? [selectedNode] : []);
     transformerRef.current.getLayer()?.batchDraw();
-  }, [selectedId, objects]);
+  }, [selectedId, objects, tool]);
 
   useEffect(() => {
     if (!activeBoardId) return;
@@ -1030,8 +1030,9 @@ export function ClassroomEditor({
                           object={object}
                           selected={selectedId === object.id}
                           onSelect={() => {
-                            if (tool !== "delete") setSelectedId(object.id);
+                            if (tool === "select") setSelectedId(object.id);
                           }}
+                          draggable={tool === "select"}
                           onChange={(patch) => patchObject(object.id, patch)}
                           onTextEdit={() => setEditingTextId(object.id)}
                           onPdfPageChange={() => undefined}
@@ -1056,13 +1057,14 @@ export function ClassroomEditor({
                         object={materialForRender}
                         selected={selectedId === object.id}
                         onSelect={() => {
-                          if (tool === "delete") return;
+                          if (tool !== "select") return;
                           if (object.data.displayState === "minimized") {
                             patchMaterialData(object.id, { displayState: "normal" });
                             return;
                           }
                           setSelectedId(object.id);
                         }}
+                        draggable={tool === "select"}
                         onHover={(hovered) => setMaterialHover(object.id, hovered)}
                         onChange={(patch) => {
                           if (!fullscreenMaterial) patchObject(object.id, patch);
@@ -1095,8 +1097,9 @@ export function ClassroomEditor({
                           object={annotation}
                           selected={selectedId === annotation.id}
                           onSelect={() => {
-                            if (tool !== "delete") setSelectedId(annotation.id);
+                            if (tool === "select") setSelectedId(annotation.id);
                           }}
+                          draggable={tool === "select"}
                           onChange={(patch) => patchObject(annotation.id, boardPatchToMaterialPatch(patch, materialBounds))}
                           onTextEdit={() => setEditingTextId(annotation.id)}
                           onPdfPageChange={() => undefined}
@@ -1111,7 +1114,10 @@ export function ClassroomEditor({
                           key={`${fullscreenMaterial.id}-reader`}
                           object={{ ...fullscreenMaterial, ...fullscreenBounds }}
                           selected={false}
-                          onSelect={() => setSelectedId(fullscreenMaterial.id)}
+                          onSelect={() => {
+                            if (tool === "select") setSelectedId(fullscreenMaterial.id);
+                          }}
+                          draggable={false}
                           onHover={() => undefined}
                           onChange={() => undefined}
                           onTextEdit={() => undefined}
@@ -1146,8 +1152,9 @@ export function ClassroomEditor({
                               object={annotation}
                               selected={selectedId === annotation.id}
                               onSelect={() => {
-                                if (tool !== "delete") setSelectedId(annotation.id);
+                                if (tool === "select") setSelectedId(annotation.id);
                               }}
+                              draggable={tool === "select"}
                               onChange={(patch) => patchObject(annotation.id, boardPatchToMaterialPatch(patch, fullscreenBounds))}
                               onTextEdit={() => setEditingTextId(annotation.id)}
                               onPdfPageChange={() => undefined}
@@ -1727,6 +1734,7 @@ function WhiteboardNode({
   object,
   selected,
   onSelect,
+  draggable,
   onChange,
   onTextEdit,
   onPdfPageChange,
@@ -1736,6 +1744,7 @@ function WhiteboardNode({
   object: WhiteboardObject;
   selected: boolean;
   onSelect: () => void;
+  draggable: boolean;
   onChange: (patch: Partial<WhiteboardObject>) => void;
   onTextEdit: () => void;
   onPdfPageChange: (page: number, pageCount?: number) => void;
@@ -1747,7 +1756,7 @@ function WhiteboardNode({
     x: object.x,
     y: object.y,
     rotation: object.rotation,
-    draggable: true,
+    draggable,
     onClick: onSelect,
     onTap: onSelect,
     onMouseEnter: () => onHover?.(true),
