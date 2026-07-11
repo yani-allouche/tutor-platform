@@ -912,6 +912,18 @@ export function ClassroomEditor({
                           }, false);
                         }}
                       />,
+                      <Rect
+                        key={`${object.id}-hit-surface`}
+                        name="material-hit-surface"
+                        x={materialBounds.x}
+                        y={materialBounds.y}
+                        width={materialBounds.width}
+                        height={materialBounds.height}
+                        fill="rgba(0,0,0,0)"
+                        listening
+                        onMouseEnter={() => setMaterialHover(object.id, true)}
+                        onMouseLeave={() => setMaterialHover(object.id, false)}
+                      />,
                       ...annotations.map((annotation) => (
                         <WhiteboardNode
                           key={annotation.id}
