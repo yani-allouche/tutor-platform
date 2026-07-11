@@ -1,17 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Stage, Layer, Rect, Ellipse, Text, Line, Arrow, Transformer, RegularPolygon, Image as KonvaImage } from "react-konva";
 import type Konva from "konva";
 import {
-  ArrowDown,
   ArrowLeftRight,
-  ArrowUp,
-  BookOpen,
   ChevronLeft,
   ChevronRight,
-  Copy,
   Download,
   Eraser,
   FileText,
@@ -19,15 +15,12 @@ import {
   Highlighter,
   Home,
   Image as ImageIcon,
-  Maximize2,
   Minus,
   MousePointer2,
   Pencil,
-  Plus,
   Redo2,
   RotateCcw,
   Shapes,
-  Trash2,
   Type,
   Undo2,
   X,
@@ -35,7 +28,6 @@ import {
   ZoomOut
 } from "lucide-react";
 import type { Board, LessonSummary, WhiteboardObject, WhiteboardObjectType } from "@/lib/types";
-import { createBoard, deleteBoard, duplicateBoard, moveBoard, renameBoard } from "@/app/(app)/lessons/[id]/boards/actions";
 
 type Tool = "select" | "hand" | "text" | "pencil" | "highlighter" | "shape" | "arrow" | "delete";
 
@@ -50,8 +42,6 @@ type MaterialTarget = {
   pageNumber: number | null;
   bounds: { x: number; y: number; width: number; height: number };
 };
-
-type ReaderFitMode = "page" | "width";
 
 const CANVAS_WIDTH = 10000;
 const CANVAS_HEIGHT = 10000;
@@ -96,13 +86,6 @@ export function ClassroomEditor({
   const [drawingTarget, setDrawingTarget] = useState<MaterialTarget | null>(null);
   const [hoveredMaterialId, setHoveredMaterialId] = useState<string | null>(null);
   const [controlsHoveredMaterialId, setControlsHoveredMaterialId] = useState<string | null>(null);
-  const [fullscreenMaterialId, setFullscreenMaterialId] = useState<string | null>(null);
-  const [readerZoom, setReaderZoom] = useState(1);
-  const [readerFitMode, setReaderFitMode] = useState<ReaderFitMode>("page");
-  const [readerWindow, setReaderWindow] = useState({ x: 120, y: 120, width: 820, height: 620 });
-  const [readerRestoreWindow, setReaderRestoreWindow] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const [readerMaximized, setReaderMaximized] = useState(false);
-  const [boardsCollapsed, setBoardsCollapsed] = useState(false);
   const [viewportSize, setViewportSize] = useState(DEFAULT_VIEWPORT);
   const [viewportScale, setViewportScale] = useState(1);
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
@@ -110,7 +93,6 @@ export function ClassroomEditor({
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
   const [history, setHistory] = useState<WhiteboardObject[][]>([]);
   const [future, setFuture] = useState<WhiteboardObject[][]>([]);
-  const [isPending, startTransition] = useTransition();
   const stageRef = useRef<Konva.Stage>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
@@ -120,28 +102,6 @@ export function ClassroomEditor({
   const rootObjects = objects.filter((object) => !object.parent_material_id);
   const materialObjects = rootObjects.filter(isMaterialObject);
   const minimizedMaterials = materialObjects.filter((object) => object.data.displayState === "minimized");
-  const fullscreenMaterial = fullscreenMaterialId ? materialObjects.find((object) => object.id === fullscreenMaterialId) : null;
-  const visibleCanvasBounds = useMemo(
-    () => ({
-      x: -stagePosition.x / viewportScale,
-      y: -stagePosition.y / viewportScale,
-      width: viewportSize.width / viewportScale,
-      height: viewportSize.height / viewportScale
-    }),
-    [stagePosition.x, stagePosition.y, viewportScale, viewportSize.height, viewportSize.width]
-  );
-  const fullscreenBounds = useMemo(() => {
-    if (!fullscreenMaterial) return visibleCanvasBounds;
-    const chromeHeight = 104 / viewportScale;
-    const contentBounds = {
-      x: readerWindow.x + 18 / viewportScale,
-      y: readerWindow.y + chromeHeight,
-      width: Math.max(120 / viewportScale, readerWindow.width - 36 / viewportScale),
-      height: Math.max(120 / viewportScale, readerWindow.height - chromeHeight - 18 / viewportScale)
-    };
-
-    return getContainedMaterialBounds(contentBounds, fullscreenMaterial, 12 / viewportScale, readerZoom, readerFitMode);
-  }, [fullscreenMaterial, readerFitMode, readerWindow.height, readerWindow.width, readerWindow.x, readerWindow.y, readerZoom, viewportScale, visibleCanvasBounds]);
 
   useEffect(() => {
     if (!sortedBoards.length) return;
@@ -295,7 +255,7 @@ export function ClassroomEditor({
       const payload = (await response.json()) as { object?: WhiteboardObject; error?: string };
       if (!response.ok || !payload.object) throw new Error(payload.error ?? "Upload failed");
       updateObjects([...objects, payload.object]);
-      openReaderForObject(payload.object);
+      setSelectedId(payload.object.id);
       setTool("select");
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "Upload failed");
@@ -396,16 +356,6 @@ export function ClassroomEditor({
     };
   }
 
-  function viewportRectToCanvas(bounds: { x: number; y: number; width: number; height: number }) {
-    const position = viewportToCanvas({ x: bounds.x, y: bounds.y });
-    return {
-      x: position.x,
-      y: position.y,
-      width: bounds.width / viewportScale,
-      height: bounds.height / viewportScale
-    };
-  }
-
   function getViewportCenter() {
     return viewportToCanvas({ x: viewportSize.width / 2, y: viewportSize.height / 2 });
   }
@@ -432,15 +382,6 @@ export function ClassroomEditor({
   function handleWheel(event: Konva.KonvaEventObject<WheelEvent>) {
     event.evt.preventDefault();
     const pointer = stageRef.current?.getPointerPosition() ?? { x: viewportSize.width / 2, y: viewportSize.height / 2 };
-    const canvasPointer = viewportToCanvas(pointer);
-
-    if (fullscreenMaterial && isPointInsideBounds(canvasPointer, readerWindow)) {
-      if (event.evt.ctrlKey || event.evt.metaKey) {
-        const direction = event.evt.deltaY > 0 ? -1 : 1;
-        setReaderZoom((current) => Math.min(3, Math.max(0.4, current * (direction > 0 ? 1.08 : 0.92))));
-      }
-      return;
-    }
 
     if (event.evt.ctrlKey || event.evt.metaKey) {
       const direction = event.evt.deltaY > 0 ? -1 : 1;
@@ -583,7 +524,7 @@ export function ClassroomEditor({
     const stage = stageRef.current;
     if (!stage) return;
 
-    const bounds = getExportBounds(objects, materialObjects, fullscreenMaterial ?? null, fullscreenMaterial ? fullscreenBounds : null);
+    const bounds = getExportBounds(objects, materialObjects);
     const previous = {
       x: stage.x(),
       y: stage.y(),
@@ -615,13 +556,9 @@ export function ClassroomEditor({
 
   function removeObject(id: string) {
     if (!id) return;
-    const object = objects.find((item) => item.id === id);
     updateObjects(objects.filter((item) => item.id !== id && item.parent_material_id !== id));
     setSelectedId(null);
     setEditingTextId(null);
-    if (object && isMaterialObject(object)) {
-      setFullscreenMaterialId((current) => (current === id ? null : current));
-    }
   }
 
   function clearBoard() {
@@ -650,13 +587,6 @@ export function ClassroomEditor({
     setEditingTextId(null);
   }
 
-  function runBoardAction(action: () => Promise<void>) {
-    startTransition(async () => {
-      await action();
-      router.refresh();
-    });
-  }
-
   function findObjectId(node: Konva.Node | null) {
     let current: Konva.Node | null = node;
     while (current) {
@@ -668,15 +598,6 @@ export function ClassroomEditor({
   }
 
   function getMaterialTargetAtPoint(point: { x: number; y: number }): MaterialTarget | null {
-    if (fullscreenMaterial) {
-      if (!isPointInsideBounds(point, fullscreenBounds)) return null;
-      return {
-        id: fullscreenMaterial.id,
-        pageNumber: fullscreenMaterial.type === "pdf" ? Number(fullscreenMaterial.data.page ?? 1) : null,
-        bounds: fullscreenBounds
-      };
-    }
-
     const materialsAtPoint = materialObjects
       .filter((object) => object.data.displayState !== "minimized")
       .filter((object) => point.x >= object.x && point.x <= object.x + object.width && point.y >= object.y && point.y <= object.y + object.height)
@@ -698,60 +619,7 @@ export function ClassroomEditor({
     patchObject(id, { data: { ...object.data, ...dataPatch } });
   }
 
-  function openReader(id: string) {
-    const object = objects.find((item) => item.id === id);
-    if (object) openReaderForObject(object);
-  }
-
-  function openReaderForObject(object: WhiteboardObject) {
-    if (objects.some((item) => item.id === object.id)) {
-      patchObject(object.id, { data: { ...object.data, displayState: "normal" } }, false);
-    }
-    const visible = visibleCanvasBounds;
-    const width = Math.min(900 / viewportScale, visible.width - 48 / viewportScale);
-    const height = Math.min(680 / viewportScale, visible.height - 48 / viewportScale);
-    setReaderWindow({
-      x: visible.x + Math.max(24 / viewportScale, (visible.width - width) / 2),
-      y: visible.y + Math.max(24 / viewportScale, (visible.height - height) / 2),
-      width: Math.max(360 / viewportScale, width),
-      height: Math.max(320 / viewportScale, height)
-    });
-    setReaderRestoreWindow(null);
-    setReaderMaximized(false);
-    setFullscreenMaterialId(object.id);
-    setSelectedId(object.id);
-    setReaderZoom(1);
-    setReaderFitMode("page");
-  }
-
-  function closeReader() {
-    setFullscreenMaterialId(null);
-    setReaderZoom(1);
-    setReaderFitMode("page");
-    setReaderMaximized(false);
-    setReaderRestoreWindow(null);
-  }
-
-  function toggleReaderMaximize() {
-    if (readerMaximized) {
-      if (readerRestoreWindow) setReaderWindow(readerRestoreWindow);
-      setReaderRestoreWindow(null);
-      setReaderMaximized(false);
-      return;
-    }
-
-    setReaderRestoreWindow(readerWindow);
-    setReaderWindow({
-      x: visibleCanvasBounds.x + 24 / viewportScale,
-      y: visibleCanvasBounds.y + 24 / viewportScale,
-      width: Math.max(360 / viewportScale, visibleCanvasBounds.width - 48 / viewportScale),
-      height: Math.max(320 / viewportScale, visibleCanvasBounds.height - 48 / viewportScale)
-    });
-    setReaderMaximized(true);
-  }
-
   function minimizeMaterial(id: string) {
-    if (fullscreenMaterialId === id) closeReader();
     patchMaterialData(id, { displayState: "minimized" });
     setSelectedId(null);
     setHoveredMaterialId(null);
@@ -763,7 +631,6 @@ export function ClassroomEditor({
     if (!object || !window.confirm("Remove this material from the board?")) return;
     updateObjects(objects.filter((item) => item.id !== id && item.parent_material_id !== id));
     setSelectedId(null);
-    if (fullscreenMaterialId === id) closeReader();
   }
 
   function setMaterialHover(id: string, hovered: boolean) {
@@ -786,8 +653,7 @@ export function ClassroomEditor({
     const material = materialObjects.find((item) => item.id === object.parent_material_id);
     if (!material) return object;
 
-    const bounds = fullscreenMaterial?.id === material.id ? fullscreenBounds : getMaterialBounds(material);
-    return materialAnnotationToBoard(object, bounds);
+    return materialAnnotationToBoard(object, getMaterialBounds(material));
   }
 
   return (
@@ -818,98 +684,7 @@ export function ClassroomEditor({
         {uploadError ? <p className="basis-full text-sm text-coral">{uploadError}</p> : null}
       </div>
 
-      <div className={`grid min-h-0 flex-1 grid-cols-1 ${boardsCollapsed ? "" : "lg:grid-cols-[260px_1fr]"}`}>
-        {!boardsCollapsed ? (
-        <aside className="overflow-y-auto border-b border-slate-200 bg-slate-50 p-3 lg:border-b-0 lg:border-r">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-ink">Boards</h2>
-            <div className="flex items-center gap-1">
-              <form
-                action={() => {
-                  runBoardAction(() => createBoard(lesson.id));
-                }}
-              >
-                <button className="rounded-md p-2 text-slate-600 hover:bg-white" aria-label="Add board" disabled={isPending}>
-                  <Plus size={16} aria-hidden="true" />
-                </button>
-              </form>
-              <button className="rounded-md p-2 text-slate-600 hover:bg-white" onClick={() => setBoardsCollapsed(true)} aria-label="Collapse boards" title="Collapse boards">
-                <ChevronLeft size={16} aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            {sortedBoards.map((board, index) => (
-              <div
-                key={board.id}
-                className={`rounded-md border p-2 ${
-                  board.id === activeBoardId ? "border-leaf bg-white shadow-sm" : "border-slate-200 bg-white/70"
-                }`}
-              >
-                <button className="mb-2 w-full text-left text-sm font-medium text-ink" onClick={() => setActiveBoardId(board.id)}>
-                  {board.name}
-                </button>
-                <form
-                  action={(formData) => {
-                    runBoardAction(() => renameBoard(lesson.id, board.id, formData));
-                  }}
-                  className="mb-2"
-                >
-                  <input className="field py-1.5" name="name" defaultValue={board.name} aria-label="Board name" />
-                </form>
-                <div className="flex items-center justify-between gap-1">
-                  <form
-                    action={() => {
-                      runBoardAction(() => moveBoard(lesson.id, board.id, "up"));
-                    }}
-                  >
-                    <button className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100" disabled={index === 0} aria-label="Move board up">
-                      <ArrowUp size={15} aria-hidden="true" />
-                    </button>
-                  </form>
-                  <form
-                    action={() => {
-                      runBoardAction(() => moveBoard(lesson.id, board.id, "down"));
-                    }}
-                  >
-                    <button
-                      className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
-                      disabled={index === sortedBoards.length - 1}
-                      aria-label="Move board down"
-                    >
-                      <ArrowDown size={15} aria-hidden="true" />
-                    </button>
-                  </form>
-                  <form
-                    action={() => {
-                      runBoardAction(() => duplicateBoard(lesson.id, board.id));
-                    }}
-                  >
-                    <button className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100" aria-label="Duplicate board">
-                      <Copy size={15} aria-hidden="true" />
-                    </button>
-                  </form>
-                  <form
-                    action={() => {
-                      runBoardAction(() => deleteBoard(lesson.id, board.id));
-                    }}
-                  >
-                    <button
-                      className="rounded-md p-1.5 text-coral hover:bg-red-50"
-                      disabled={sortedBoards.length <= 1}
-                      aria-label="Delete board"
-                    >
-                      <Trash2 size={15} aria-hidden="true" />
-                    </button>
-                  </form>
-                </div>
-              </div>
-            ))}
-          </div>
-        </aside>
-        ) : null}
-
+      <div className="grid min-h-0 flex-1 grid-cols-1">
         <section className="grid min-h-0 grid-cols-[56px_1fr] bg-slate-100">
           <Toolbar
             tool={tool}
@@ -932,17 +707,6 @@ export function ClassroomEditor({
           />
 
           <div className="relative h-full min-w-0 overflow-hidden">
-            {boardsCollapsed && !fullscreenMaterial ? (
-              <button
-                className="absolute left-4 top-20 z-20 flex items-center gap-1 rounded-md border border-slate-200 bg-white/95 px-2 py-1.5 text-sm font-medium text-slate-600 shadow-sm hover:bg-slate-50"
-                onClick={() => setBoardsCollapsed(false)}
-                aria-label="Open boards"
-                title="Open boards"
-              >
-                <ChevronRight size={16} aria-hidden="true" />
-                Boards
-              </button>
-            ) : null}
             <div className="absolute left-4 top-4 z-20">
               <ToolOptions
                 tool={tool}
@@ -1038,7 +802,7 @@ export function ClassroomEditor({
               >
                 <Layer>
                   <Rect name="canvas-background" width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="#ffffff" />
-                  {rootObjects.filter((object) => object.data.displayState !== "minimized" && object.id !== fullscreenMaterialId).flatMap((object) => {
+                  {rootObjects.filter((object) => object.data.displayState !== "minimized").flatMap((object) => {
                     if (!isMaterialObject(object)) {
                       return [
                         <WhiteboardNode
@@ -1082,9 +846,7 @@ export function ClassroomEditor({
                         }}
                         draggable={tool === "select"}
                         onHover={(hovered) => setMaterialHover(object.id, hovered)}
-                        onChange={(patch) => {
-                          if (!fullscreenMaterial) patchObject(object.id, patch);
-                        }}
+                        onChange={(patch) => patchObject(object.id, patch)}
                         onTextEdit={() => undefined}
                         onPdfPageChange={(page, pageCount) => {
                           patchObject(
@@ -1124,61 +886,6 @@ export function ClassroomEditor({
                       ))
                     ];
                   })}
-                  {fullscreenMaterial
-                    ? [
-                        <WhiteboardNode
-                          key={`${fullscreenMaterial.id}-reader`}
-                          object={{ ...fullscreenMaterial, ...fullscreenBounds }}
-                          selected={false}
-                          onSelect={() => {
-                            if (tool === "select") setSelectedId(fullscreenMaterial.id);
-                          }}
-                          draggable={false}
-                          onHover={() => undefined}
-                          onChange={() => undefined}
-                          onTextEdit={() => undefined}
-                          onPdfPageChange={(page, pageCount) => {
-                            patchObject(
-                              fullscreenMaterial.id,
-                              {
-                                data: {
-                                  ...fullscreenMaterial.data,
-                                  page,
-                                  pageCount
-                                }
-                              },
-                              false
-                            );
-                          }}
-                          onMaterialSize={(size) => {
-                            const nextData =
-                              fullscreenMaterial.type === "pdf"
-                                ? { ...fullscreenMaterial.data, pageWidth: size.width, pageHeight: size.height }
-                                : { ...fullscreenMaterial.data, naturalWidth: size.width, naturalHeight: size.height };
-                            patchObject(fullscreenMaterial.id, { data: nextData }, false);
-                          }}
-                        />,
-                        ...objects
-                          .filter((item) => item.parent_material_id === fullscreenMaterial.id)
-                          .filter((item) => item.page_number === null || item.page_number === (fullscreenMaterial.type === "pdf" ? Number(fullscreenMaterial.data.page ?? 1) : null))
-                          .map((item) => materialAnnotationToBoard(item, fullscreenBounds))
-                          .map((annotation) => (
-                            <WhiteboardNode
-                              key={`${annotation.id}-reader`}
-                              object={annotation}
-                              selected={selectedId === annotation.id}
-                              onSelect={() => {
-                                if (tool === "select") setSelectedId(annotation.id);
-                              }}
-                              draggable={tool === "select"}
-                              onChange={(patch) => patchObject(annotation.id, boardPatchToMaterialPatch(patch, fullscreenBounds))}
-                              onTextEdit={() => setEditingTextId(annotation.id)}
-                              onPdfPageChange={() => undefined}
-                              onMaterialSize={() => undefined}
-                            />
-                          ))
-                      ]
-                    : null}
                   <Transformer
                     ref={transformerRef}
                     rotateEnabled
@@ -1190,39 +897,16 @@ export function ClassroomEditor({
                   />
                 </Layer>
               </Stage>
-              {!fullscreenMaterial
-                ? materialObjects.map((object) => (
-                    <MaterialControls
-                      key={object.id}
-                      object={objectToViewport(object)}
-                      visible={selectedId === object.id || hoveredMaterialId === object.id || controlsHoveredMaterialId === object.id}
-                      onHover={(hovered) => setControlsHoveredMaterialId(hovered ? object.id : null)}
-                      onMinimize={() => minimizeMaterial(object.id)}
-                      onOpenReader={() => openReader(object.id)}
-                      onClose={() => removeMaterial(object.id)}
-                    />
-                  ))
-                : null}
-              {fullscreenMaterial ? (
-                <ReaderControls
-                  material={fullscreenMaterial}
-                  windowBounds={viewportRectFromCanvas(readerWindow)}
-                  maximized={readerMaximized}
-                  zoom={readerZoom}
-                  fitMode={readerFitMode}
-                  onWindowChange={(bounds) => {
-                    setReaderWindow(viewportRectToCanvas(bounds));
-                    setReaderMaximized(false);
-                    setReaderRestoreWindow(null);
-                  }}
-                  onToggleMaximize={toggleReaderMaximize}
-                  onZoomChange={setReaderZoom}
-                  onFitModeChange={setReaderFitMode}
-                  onPageChange={(page) => patchMaterialData(fullscreenMaterial.id, { page })}
-                  onMinimize={() => minimizeMaterial(fullscreenMaterial.id)}
-                  onClose={closeReader}
+              {materialObjects.map((object) => (
+                <MaterialControls
+                  key={object.id}
+                  object={objectToViewport(object)}
+                  visible={selectedId === object.id || hoveredMaterialId === object.id || controlsHoveredMaterialId === object.id}
+                  onHover={(hovered) => setControlsHoveredMaterialId(hovered ? object.id : null)}
+                  onMinimize={() => minimizeMaterial(object.id)}
+                  onClose={() => removeMaterial(object.id)}
                 />
-              ) : null}
+              ))}
               {editingTextId ? (
                 <InlineTextEditor
                   object={getEditingTextObject() ? objectToViewport(getEditingTextObject()!) : undefined}
@@ -1249,7 +933,7 @@ export function ClassroomEditor({
                   }}
                 />
               ) : null}
-              {selectedId && !fullscreenMaterial ? (
+              {selectedId ? (
                 <PdfControls
                   object={objects.find((object) => object.id === selectedId)}
                   bounds={
@@ -1382,14 +1066,12 @@ function MaterialControls({
   visible,
   onHover,
   onMinimize,
-  onOpenReader,
   onClose
 }: {
   object: WhiteboardObject;
   visible: boolean;
   onHover: (hovered: boolean) => void;
   onMinimize: () => void;
-  onOpenReader: () => void;
   onClose: () => void;
 }) {
   if (!visible || object.data.displayState === "minimized") return null;
@@ -1407,170 +1089,9 @@ function MaterialControls({
       <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onMinimize} aria-label="Minimize material" title="Minimize">
         <Minus size={15} aria-hidden="true" />
       </button>
-      <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onOpenReader} aria-label="Open in reader" title="Open in reader">
-        <BookOpen size={15} aria-hidden="true" />
-      </button>
       <button className="rounded p-1 text-coral hover:bg-red-50" onClick={onClose} aria-label="Remove material" title="Remove">
         <X size={15} aria-hidden="true" />
       </button>
-    </div>
-  );
-}
-
-function ReaderControls({
-  material,
-  windowBounds,
-  maximized,
-  zoom,
-  fitMode,
-  onWindowChange,
-  onToggleMaximize,
-  onZoomChange,
-  onFitModeChange,
-  onPageChange,
-  onMinimize,
-  onClose
-}: {
-  material: WhiteboardObject;
-  windowBounds: { x: number; y: number; width: number; height: number };
-  maximized: boolean;
-  zoom: number;
-  fitMode: ReaderFitMode;
-  onWindowChange: (bounds: { x: number; y: number; width: number; height: number }) => void;
-  onToggleMaximize: () => void;
-  onZoomChange: (zoom: number) => void;
-  onFitModeChange: (mode: ReaderFitMode) => void;
-  onPageChange: (page: number) => void;
-  onMinimize: () => void;
-  onClose: () => void;
-}) {
-  const isPdf = material.type === "pdf";
-  const page = Number(material.data.page ?? 1);
-  const pageCount = Number(material.data.pageCount ?? 1);
-  const filename = String(material.data.filename ?? (isPdf ? "PDF" : "Image"));
-
-  function startMove(event: React.PointerEvent<HTMLDivElement>) {
-    if (maximized) return;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const initial = { ...windowBounds };
-
-    function move(moveEvent: PointerEvent) {
-      onWindowChange({
-        ...initial,
-        x: initial.x + moveEvent.clientX - startX,
-        y: initial.y + moveEvent.clientY - startY
-      });
-    }
-
-    function stop() {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-    }
-
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-  }
-
-  function startResize(event: React.PointerEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    event.stopPropagation();
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const initial = { ...windowBounds };
-
-    function move(moveEvent: PointerEvent) {
-      onWindowChange({
-        ...initial,
-        width: Math.max(360, initial.width + moveEvent.clientX - startX),
-        height: Math.max(320, initial.height + moveEvent.clientY - startY)
-      });
-    }
-
-    function stop() {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-    }
-
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-  }
-
-  return (
-    <div
-      className="pointer-events-none absolute z-30 overflow-hidden rounded-md border border-slate-300 shadow-lg ring-1 ring-slate-900/5"
-      style={{
-        left: windowBounds.x,
-        top: windowBounds.y,
-        width: windowBounds.width,
-        height: windowBounds.height
-      }}
-    >
-      <div className="pointer-events-auto flex cursor-move items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-3 py-2" onPointerDown={startMove}>
-        <span className="min-w-0 truncate text-sm font-medium text-ink">{filename}</span>
-        <div className="flex shrink-0 items-center gap-1">
-          <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onMinimize} aria-label="Minimize material" title="Minimize">
-            <Minus size={16} aria-hidden="true" />
-          </button>
-          <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onToggleMaximize} aria-label={maximized ? "Restore viewer" : "Maximize viewer"} title={maximized ? "Restore" : "Maximize"}>
-            <Maximize2 size={16} aria-hidden="true" />
-          </button>
-          <button className="rounded p-1 text-slate-600 hover:bg-slate-100" onClick={onClose} aria-label="Close viewer" title="Close">
-            <X size={16} aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-      <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-sm">
-        {isPdf ? (
-          <>
-            <button className="rounded-md p-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40" disabled={page <= 1} onClick={() => onPageChange(page - 1)} aria-label="Previous PDF page">
-              <ChevronLeft size={16} aria-hidden="true" />
-            </button>
-            <span className="min-w-16 text-center text-slate-600">
-              {page} / {pageCount || "?"}
-            </span>
-            <button
-              className="rounded-md p-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40"
-              disabled={pageCount > 0 && page >= pageCount}
-              onClick={() => onPageChange(page + 1)}
-              aria-label="Next PDF page"
-            >
-              <ChevronRight size={16} aria-hidden="true" />
-            </button>
-          </>
-        ) : null}
-        <button className="rounded-md p-1 text-slate-600 hover:bg-slate-100" onClick={() => onZoomChange(Math.max(0.4, zoom * 0.85))} aria-label="Reader zoom out">
-          <ZoomOut size={16} aria-hidden="true" />
-        </button>
-        <span className="min-w-14 text-center text-xs font-medium tabular-nums text-slate-600">{Math.round(zoom * 100)}%</span>
-        <button className="rounded-md p-1 text-slate-600 hover:bg-slate-100" onClick={() => onZoomChange(Math.min(3, zoom * 1.18))} aria-label="Reader zoom in">
-          <ZoomIn size={16} aria-hidden="true" />
-        </button>
-        <button
-          className={`rounded-md px-2 py-1 text-xs font-medium ${fitMode === "width" ? "bg-leaf text-white" : "text-slate-600 hover:bg-slate-100"}`}
-          onClick={() => {
-            onFitModeChange("width");
-            onZoomChange(1);
-          }}
-        >
-          Fit width
-        </button>
-        <button
-          className={`rounded-md px-2 py-1 text-xs font-medium ${fitMode === "page" ? "bg-leaf text-white" : "text-slate-600 hover:bg-slate-100"}`}
-          onClick={() => {
-            onFitModeChange("page");
-            onZoomChange(1);
-          }}
-        >
-          Fit page
-        </button>
-      </div>
-      <button
-        className="pointer-events-auto absolute bottom-0 right-0 size-5 cursor-nwse-resize rounded-tl-md border-l border-t border-slate-300 bg-white/95 text-slate-400"
-        onPointerDown={startResize}
-        aria-label="Resize viewer"
-        title="Resize"
-      />
     </div>
   );
 }
@@ -2283,47 +1804,6 @@ function getMaterialBounds(material: WhiteboardObject) {
   };
 }
 
-function getContainedMaterialBounds(
-  availableBounds: { x: number; y: number; width: number; height: number },
-  material: WhiteboardObject,
-  margin: number,
-  zoom = 1,
-  fitMode: ReaderFitMode = "page"
-) {
-  const availableWidth = Math.max(1, availableBounds.width - margin * 2);
-  const availableHeight = Math.max(1, availableBounds.height - margin * 2);
-  const sourceSize = getMaterialSourceSize(material);
-  const fitScale = fitMode === "width" ? availableWidth / sourceSize.width : Math.min(availableWidth / sourceSize.width, availableHeight / sourceSize.height);
-  const scale = fitScale * zoom;
-  const width = sourceSize.width * scale;
-  const height = sourceSize.height * scale;
-
-  return {
-    x: availableBounds.x + (availableBounds.width - width) / 2,
-    y: availableBounds.y + (availableBounds.height - height) / 2,
-    width,
-    height
-  };
-}
-
-function getMaterialSourceSize(material: WhiteboardObject) {
-  const width =
-    material.type === "pdf"
-      ? Number(material.data.pageWidth ?? material.width)
-      : Number(material.data.naturalWidth ?? material.width);
-  const height =
-    material.type === "pdf"
-      ? Number(material.data.pageHeight ?? material.height)
-      : Number(material.data.naturalHeight ?? material.height);
-
-  if (width > 0 && height > 0) return { width, height };
-  return { width: Math.max(1, material.width), height: Math.max(1, material.height) };
-}
-
-function isPointInsideBounds(point: { x: number; y: number }, bounds: { x: number; y: number; width: number; height: number }) {
-  return point.x >= bounds.x && point.x <= bounds.x + bounds.width && point.y >= bounds.y && point.y <= bounds.y + bounds.height;
-}
-
 function toRelativePoint(x: number, y: number, bounds: { x: number; y: number; width: number; height: number }) {
   return {
     x: (x - bounds.x) / bounds.width,
@@ -2380,18 +1860,9 @@ function boardPatchToMaterialPatch(patch: Partial<WhiteboardObject>, bounds: { x
   return next;
 }
 
-function getExportBounds(
-  objects: WhiteboardObject[],
-  materials: WhiteboardObject[],
-  fullscreenMaterial: WhiteboardObject | null,
-  fullscreenBounds: { x: number; y: number; width: number; height: number } | null
-) {
+function getExportBounds(objects: WhiteboardObject[], materials: WhiteboardObject[]) {
   const visibleObjects = objects
     .filter((object) => {
-      if (fullscreenMaterial) {
-        return object.id === fullscreenMaterial.id || object.parent_material_id === fullscreenMaterial.id;
-      }
-
       if (!object.parent_material_id) return object.data.displayState !== "minimized";
       const material = materials.find((item) => item.id === object.parent_material_id);
       if (!material || material.data.displayState === "minimized") return false;
@@ -2399,22 +1870,19 @@ function getExportBounds(
       return object.page_number === null || object.page_number === Number(material.data.page ?? 1);
     })
     .map((object) => {
-      if (!object.parent_material_id) {
-        if (fullscreenMaterial?.id === object.id && fullscreenBounds) return { ...object, ...fullscreenBounds };
-        return object;
-      }
+      if (!object.parent_material_id) return object;
 
       const material = materials.find((item) => item.id === object.parent_material_id);
       if (!material) return object;
-      return materialAnnotationToBoard(object, fullscreenMaterial?.id === material.id && fullscreenBounds ? fullscreenBounds : getMaterialBounds(material));
+      return materialAnnotationToBoard(object, getMaterialBounds(material));
     });
 
   if (!visibleObjects.length) {
     return {
-      x: Math.max(0, fullscreenBounds?.x ?? 0),
-      y: Math.max(0, fullscreenBounds?.y ?? 0),
-      width: Math.min(CANVAS_WIDTH, fullscreenBounds?.width ?? 1200),
-      height: Math.min(CANVAS_HEIGHT, fullscreenBounds?.height ?? 760)
+      x: 0,
+      y: 0,
+      width: Math.min(CANVAS_WIDTH, 1200),
+      height: Math.min(CANVAS_HEIGHT, 760)
     };
   }
 
