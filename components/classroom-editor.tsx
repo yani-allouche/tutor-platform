@@ -864,16 +864,15 @@ export function ClassroomEditor({
                       <WhiteboardNode
                         key={object.id}
                         object={materialForRender}
-                        selected={selectedId === object.id && object.data.displayMode !== "fullBoard"}
+                        selected={false}
                         onSelect={() => {
                           if (tool !== "select") return;
                           if (object.data.displayState === "minimized") {
                             patchMaterialData(object.id, { displayState: "normal" });
                             return;
                           }
-                          setSelectedId(object.id);
                         }}
-                        draggable={tool === "select" && object.data.displayMode !== "fullBoard"}
+                        draggable={false}
                         onHover={(hovered) => setMaterialHover(object.id, hovered)}
                         onChange={(patch) => patchObject(object.id, patch)}
                         onTextEdit={() => undefined}
@@ -1800,6 +1799,8 @@ function InlineTextEditor({
         width: Math.max(160, object.width),
         height: Math.max(48, object.height),
         fontSize: Number(object.data.fontSize ?? 28) * viewportScale,
+        backgroundColor: "transparent",
+        WebkitAppearance: "none",
         transform: `rotate(${object.rotation}deg)`,
         transformOrigin: "top left"
       }}
