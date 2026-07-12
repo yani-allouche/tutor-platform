@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ExternalLink, Plus, Trash2, Users } from "lucide-react";
+import type { ReactNode } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { getStudents } from "@/lib/data";
@@ -36,15 +37,17 @@ export default async function StudentsPage() {
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
                 {students.map((student) => (
-                  <tr key={student.id}>
-                    <td className="px-4 py-3 font-medium text-ink">
-                      <Link className="hover:underline" href={`/students/${student.id}`}>
-                        {student.name}
-                      </Link>
+                  <tr key={student.id} className="group hover:bg-slate-50">
+                    <td className="p-0 font-medium text-ink">
+                      <StudentRowLink studentId={student.id}>{student.name}</StudentRowLink>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{student.lesson_count}</td>
-                    <td className="px-4 py-3 text-slate-600">{formatDate(student.last_lesson_date)}</td>
-                    <td className="px-4 py-3">
+                    <td className="p-0 text-slate-600">
+                      <StudentRowLink studentId={student.id}>{student.lesson_count}</StudentRowLink>
+                    </td>
+                    <td className="p-0 text-slate-600">
+                      <StudentRowLink studentId={student.id}>{formatDate(student.last_lesson_date)}</StudentRowLink>
+                    </td>
+                    <td className="px-4 py-3 group-hover:bg-slate-50">
                       <div className="flex justify-end gap-2">
                         <Link className="rounded-md p-2 text-slate-600 hover:bg-slate-100" href={`/students/${student.id}`} aria-label="Open student">
                           <ExternalLink size={16} aria-hidden="true" />
@@ -76,5 +79,13 @@ export default async function StudentsPage() {
         />
       )}
     </div>
+  );
+}
+
+function StudentRowLink({ studentId, children }: { studentId: string; children: ReactNode }) {
+  return (
+    <Link className="block h-full px-4 py-3 transition-colors group-hover:text-leaf" href={`/students/${studentId}`}>
+      {children}
+    </Link>
   );
 }
