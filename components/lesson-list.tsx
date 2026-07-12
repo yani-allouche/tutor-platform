@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Copy, ExternalLink, Trash2 } from "lucide-react";
+import type { ReactNode } from "react";
 import { formatDate, formatDateTime } from "@/lib/format";
 import type { LessonSummary } from "@/lib/types";
 import { deleteLesson, duplicateLesson } from "@/app/(app)/lessons/actions";
@@ -20,17 +21,21 @@ export function LessonList({ lessons, showActions = true }: { lessons: LessonSum
           </thead>
           <tbody className="divide-y divide-slate-100 bg-white">
             {lessons.map((lesson) => (
-              <tr key={lesson.id}>
-                <td className="px-4 py-3 font-medium text-ink">{lesson.student_name ?? "Unlinked"}</td>
-                <td className="px-4 py-3 text-slate-600">
-                  <Link className="hover:underline" href={`/lessons/${lesson.id}`}>
-                    {formatDate(lesson.lesson_date)}
-                  </Link>
+              <tr key={lesson.id} className="group hover:bg-slate-50">
+                <td className="p-0 font-medium text-ink">
+                  <LessonRowLink lessonId={lesson.id}>{lesson.student_name ?? "Unlinked"}</LessonRowLink>
                 </td>
-                <td className="px-4 py-3 text-slate-600">{formatDateTime(lesson.updated_at)}</td>
-                <td className="px-4 py-3 text-slate-600">{lesson.board_count}</td>
+                <td className="p-0 text-slate-600">
+                  <LessonRowLink lessonId={lesson.id}>{formatDate(lesson.lesson_date)}</LessonRowLink>
+                </td>
+                <td className="p-0 text-slate-600">
+                  <LessonRowLink lessonId={lesson.id}>{formatDateTime(lesson.updated_at)}</LessonRowLink>
+                </td>
+                <td className="p-0 text-slate-600">
+                  <LessonRowLink lessonId={lesson.id}>{lesson.board_count}</LessonRowLink>
+                </td>
                 {showActions ? (
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 group-hover:bg-slate-50">
                     <div className="flex justify-end gap-2">
                       <Link className="rounded-md p-2 text-slate-600 hover:bg-slate-100" href={`/lessons/${lesson.id}`} aria-label="Open lesson">
                         <ExternalLink size={16} aria-hidden="true" />
@@ -54,5 +59,13 @@ export function LessonList({ lessons, showActions = true }: { lessons: LessonSum
         </table>
       </div>
     </div>
+  );
+}
+
+function LessonRowLink({ lessonId, children }: { lessonId: string; children: ReactNode }) {
+  return (
+    <Link className="block h-full px-4 py-3 transition-colors group-hover:text-leaf" href={`/lessons/${lessonId}`}>
+      {children}
+    </Link>
   );
 }
