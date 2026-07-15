@@ -1,12 +1,17 @@
 import Link from "next/link";
 import { NotebookTabs, Plus, Users } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
+import { GuestDashboard } from "@/components/guest-workspace";
 import { LessonList } from "@/components/lesson-list";
 import { PageHeader } from "@/components/page-header";
+import { getOptionalUser } from "@/lib/auth";
 import { getLessons, getStudents } from "@/lib/data";
 import { formatDate } from "@/lib/format";
 
 export default async function DashboardPage() {
+  const user = await getOptionalUser();
+  if (!user) return <GuestDashboard />;
+
   const [lessons, students] = await Promise.all([getLessons(6), getStudents()]);
 
   return (

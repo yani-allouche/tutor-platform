@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { Edit, NotebookTabs, Plus, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
+import { GuestStudentDetailPage } from "@/components/guest-workspace";
 import { LessonList } from "@/components/lesson-list";
 import { PageHeader } from "@/components/page-header";
+import { getOptionalUser } from "@/lib/auth";
 import { getStudent, getStudentLessons } from "@/lib/data";
 import { deleteStudent } from "../actions";
 
 export default async function StudentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const user = await getOptionalUser();
+  if (!user) return <GuestStudentDetailPage id={id} />;
+
   const [student, lessons] = await Promise.all([getStudent(id), getStudentLessons(id)]);
 
   return (

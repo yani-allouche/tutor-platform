@@ -2,12 +2,17 @@ import Link from "next/link";
 import { ExternalLink, Plus, Trash2, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { EmptyState } from "@/components/empty-state";
+import { GuestStudentsPage } from "@/components/guest-workspace";
 import { PageHeader } from "@/components/page-header";
+import { getOptionalUser } from "@/lib/auth";
 import { getStudents } from "@/lib/data";
 import { formatDate } from "@/lib/format";
 import { deleteStudent } from "./actions";
 
 export default async function StudentsPage() {
+  const user = await getOptionalUser();
+  if (!user) return <GuestStudentsPage />;
+
   const students = await getStudents();
 
   return (

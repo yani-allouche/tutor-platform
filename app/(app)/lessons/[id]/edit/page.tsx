@@ -1,10 +1,15 @@
 import { PageHeader } from "@/components/page-header";
 import { LessonForm } from "@/components/lesson-form";
+import { GuestEditLessonPage } from "@/components/guest-workspace";
+import { getOptionalUser } from "@/lib/auth";
 import { getLesson, getStudentOptions } from "@/lib/data";
 import { updateLesson } from "../../actions";
 
 export default async function EditLessonPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const user = await getOptionalUser();
+  if (!user) return <GuestEditLessonPage id={id} />;
+
   const [lesson, students] = await Promise.all([getLesson(id), getStudentOptions()]);
 
   return (

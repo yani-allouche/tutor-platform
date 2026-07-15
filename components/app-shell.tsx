@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpen, LayoutDashboard, LogOut, Users, NotebookTabs } from "lucide-react";
+import { BookOpen, LayoutDashboard, LogIn, LogOut, Users, NotebookTabs, UserPlus } from "lucide-react";
 import { logOut } from "@/app/(auth)/auth/actions";
 
 const navItems = [
@@ -8,7 +8,15 @@ const navItems = [
   { href: "/lessons", label: "Lessons", icon: NotebookTabs }
 ];
 
-export function AppShell({ children, tutorName }: { children: React.ReactNode; tutorName: string }) {
+export function AppShell({
+  children,
+  tutorName,
+  isGuest = false
+}: {
+  children: React.ReactNode;
+  tutorName: string;
+  isGuest?: boolean;
+}) {
   return (
     <div className="min-h-screen bg-mist">
       <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white px-4 py-5 lg:block">
@@ -40,12 +48,25 @@ export function AppShell({ children, tutorName }: { children: React.ReactNode; t
 
         <div className="absolute inset-x-4 bottom-5 border-t border-slate-200 pt-4">
           <p className="mb-3 truncate text-sm font-medium text-ink">{tutorName}</p>
-          <form action={logOut}>
-            <button className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-ink">
-              <LogOut size={18} aria-hidden="true" />
-              Log out
-            </button>
-          </form>
+          {isGuest ? (
+            <div className="space-y-2">
+              <Link className="flex w-full items-center gap-3 rounded-md bg-leaf px-3 py-2 text-sm font-medium text-white hover:bg-leaf/90" href="/signup">
+                <UserPlus size={18} aria-hidden="true" />
+                Create account
+              </Link>
+              <Link className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-ink" href="/login">
+                <LogIn size={18} aria-hidden="true" />
+                Log in
+              </Link>
+            </div>
+          ) : (
+            <form action={logOut}>
+              <button className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-ink">
+                <LogOut size={18} aria-hidden="true" />
+                Log out
+              </button>
+            </form>
+          )}
         </div>
       </aside>
 
@@ -55,11 +76,22 @@ export function AppShell({ children, tutorName }: { children: React.ReactNode; t
             <BookOpen size={20} aria-hidden="true" />
             Tutor Platform
           </Link>
-          <form action={logOut}>
-            <button className="rounded-md p-2 text-slate-600 hover:bg-slate-100" aria-label="Log out">
-              <LogOut size={18} aria-hidden="true" />
-            </button>
-          </form>
+          {isGuest ? (
+            <div className="flex items-center gap-2">
+              <Link className="rounded-md p-2 text-slate-600 hover:bg-slate-100" href="/login" aria-label="Log in">
+                <LogIn size={18} aria-hidden="true" />
+              </Link>
+              <Link className="rounded-md bg-leaf px-3 py-2 text-sm font-medium text-white" href="/signup">
+                Sign up
+              </Link>
+            </div>
+          ) : (
+            <form action={logOut}>
+              <button className="rounded-md p-2 text-slate-600 hover:bg-slate-100" aria-label="Log out">
+                <LogOut size={18} aria-hidden="true" />
+              </button>
+            </form>
+          )}
         </div>
         <nav className="mt-3 flex gap-2 overflow-x-auto">
           {navItems.map((item) => (
@@ -74,7 +106,14 @@ export function AppShell({ children, tutorName }: { children: React.ReactNode; t
         </nav>
       </header>
 
-      <main className="px-4 py-6 lg:ml-64 lg:px-8">{children}</main>
+      <main className="px-4 py-6 lg:ml-64 lg:px-8">
+        {isGuest ? (
+          <div className="mx-auto mb-5 max-w-6xl rounded-md border border-leaf/20 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+            You are exploring a demo workspace. Create an account to save your students, lessons, and whiteboard work permanently.
+          </div>
+        ) : null}
+        {children}
+      </main>
     </div>
   );
 }

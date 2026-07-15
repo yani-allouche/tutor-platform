@@ -1,5 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import { LessonForm } from "@/components/lesson-form";
+import { GuestNewLessonPage } from "@/components/guest-workspace";
+import { getOptionalUser } from "@/lib/auth";
 import { getStudentOptions } from "@/lib/data";
 import { createLesson } from "../actions";
 
@@ -8,7 +10,10 @@ export default async function NewLessonPage({
 }: {
   searchParams: Promise<{ studentId?: string }>;
 }) {
-  const [students, params] = await Promise.all([getStudentOptions(), searchParams]);
+  const [user, params] = await Promise.all([getOptionalUser(), searchParams]);
+  if (!user) return <GuestNewLessonPage defaultStudentId={params.studentId} />;
+
+  const students = await getStudentOptions();
 
   return (
     <div className="mx-auto max-w-3xl">

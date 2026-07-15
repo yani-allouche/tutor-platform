@@ -1,11 +1,16 @@
 import Link from "next/link";
 import { NotebookTabs, Plus } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
+import { GuestLessonsPage } from "@/components/guest-workspace";
 import { LessonList } from "@/components/lesson-list";
 import { PageHeader } from "@/components/page-header";
+import { getOptionalUser } from "@/lib/auth";
 import { getLessons } from "@/lib/data";
 
 export default async function LessonsPage() {
+  const user = await getOptionalUser();
+  if (!user) return <GuestLessonsPage />;
+
   const lessons = await getLessons();
 
   return (
