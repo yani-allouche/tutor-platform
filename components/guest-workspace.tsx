@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Copy, ExternalLink, NotebookTabs, Plus, Trash2, Users } from "lucide-react";
+import { ClassroomEditor } from "@/components/classroom-editor";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { formatDate, formatDateTime } from "@/lib/format";
@@ -482,33 +483,30 @@ export function GuestLessonDetailPage({ id }: { id: string }) {
   if (!lesson) return <GuestNotFound label="lesson" />;
 
   const student = lesson.student_id ? store.students.find((item) => item.id === lesson.student_id) : null;
+  const timestamp = lesson.created_at || now();
+  const boardId = `guest-board-${lesson.id}`;
+  const lessonOptions = getLessonSummaries(store);
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <PageHeader
-        title={formatDate(lesson.lesson_date)}
-        description={student ? `Lesson for ${student.name}` : "Unlinked lesson"}
-        action={
-          <Link className="btn-secondary" href={`/lessons/${lesson.id}/edit`}>
-            Edit
-          </Link>
+    <ClassroomEditor
+      isGuestMode
+      lesson={{
+        id: lesson.id,
+        lesson_date: lesson.lesson_date,
+        student_name: student?.name ?? null
+      }}
+      boards={[
+        {
+          id: boardId,
+          lesson_id: lesson.id,
+          name: "Board 1",
+          order: 1,
+          created_at: timestamp,
+          updated_at: timestamp
         }
-      />
-      <div className="panel p-6">
-        <h2 className="text-lg font-semibold text-ink">Classroom preview</h2>
-        <p className="mt-2 text-sm text-slate-600">
-          The saved classroom, file uploads, and whiteboard history are available after creating an account.
-        </p>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link className="btn-primary" href="/signup">
-            Create account to save permanently
-          </Link>
-          <Link className="btn-secondary" href="/lessons">
-            Back to lessons
-          </Link>
-        </div>
-      </div>
-    </div>
+      ]}
+      lessonOptions={lessonOptions}
+    />
   );
 }
 

@@ -55,11 +55,13 @@ const SHAPES = ["rect", "ellipse", "triangle", "diamond"] as const;
 export function ClassroomEditor({
   lesson,
   boards,
-  lessonOptions
+  lessonOptions,
+  isGuestMode = false
 }: {
   lesson: LessonEditorData;
   boards: Board[];
   lessonOptions: LessonSummary[];
+  isGuestMode?: boolean;
 }) {
   const router = useRouter();
   const sortedBoards = useMemo(() => [...boards].sort((a, b) => a.order - b.order), [boards]);
@@ -90,7 +92,7 @@ export function ClassroomEditor({
   const [viewportScale, setViewportScale] = useState(1);
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
   const [spacePressed, setSpacePressed] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error" | "guest">("saved");
   const [history, setHistory] = useState<WhiteboardObject[][]>([]);
   const [future, setFuture] = useState<WhiteboardObject[][]>([]);
   const stageRef = useRef<Konva.Stage>(null);
@@ -116,8 +118,13 @@ export function ClassroomEditor({
     setSelectedId(null);
     setHistory([]);
     setFuture([]);
-    setSaveStatus("saved");
+    setSaveStatus(isGuestMode ? "guest" : "saved");
     skipNextSave.current = true;
+
+    if (isGuestMode) {
+      setObjects([]);
+      return;
+    }
 
     fetch(`/api/boards/${activeBoardId}/objects`, { cache: "no-store" })
       .then((response) => response.json())
@@ -127,7 +134,7 @@ export function ClassroomEditor({
       .catch(() => {
         setSaveStatus("error");
       });
-  }, [activeBoardId]);
+  }, [activeBoardId, isGuestMode]);
 
   useEffect(() => {
     const node = viewportRef.current;
@@ -160,6 +167,11 @@ export function ClassroomEditor({
 
   useEffect(() => {
     if (!activeBoardId) return;
+    if (isGuestMode) {
+      setSaveStatus("guest");
+      return;
+    }
+
     if (skipNextSave.current) {
       skipNextSave.current = false;
       return;
@@ -186,7 +198,7 @@ export function ClassroomEditor({
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [activeBoardId, objects]);
+  }, [activeBoardId, objects, isGuestMode]);
 
   const updateObjects = useCallback((next: WhiteboardObject[], remember = true) => {
     if (remember) {
@@ -246,6 +258,45 @@ export function ClassroomEditor({
     }
 
     setIsUploading(true);
+
+    if (isGuestMode) {
+      const objectUrl = URL.createObjectURL(file);
+      const timestamp = new Date().toISOString();
+      const materialObject: WhiteboardObject = {
+        id: crypto.randomUUID(),
+        board_id: activeBoardId,
+        parent_material_id: null,
+        page_number: null,
+        type: file.type === "application/pdf" ? "pdf" : "image",
+        x: 0,
+        y: 0,
+        width: Math.max(360, viewportSize.width),
+        height: Math.max(320, viewportSize.height),
+        rotation: 0,
+        z_index: objects.length,
+        data: {
+          url: objectUrl,
+          filename: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          displayMode: "fullBoard",
+          displayState: "normal",
+          page: 1
+        },
+        created_at: timestamp,
+        updated_at: timestamp
+      };
+      const fittedObject = fitMaterialToBoard(materialObject);
+      updateObjects([...objects, fittedObject]);
+      setSelectedId(materialObject.id);
+      setTool("select");
+      setViewportScale(1);
+      setStagePosition({ x: 0, y: 0 });
+      setSaveStatus("guest");
+      setIsUploading(false);
+      return;
+    }
+
     const body = new FormData();
     body.append("file", file);
 
@@ -516,6 +567,11 @@ export function ClassroomEditor({
 
   async function saveNow(nextObjects = objects) {
     if (!activeBoardId) return true;
+    if (isGuestMode) {
+      setSaveStatus("guest");
+      return true;
+    }
+
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setSaveStatus("saving");
 
@@ -536,12 +592,22 @@ export function ClassroomEditor({
 
   async function openLesson(lessonId: string) {
     if (lessonId === lesson.id) return;
+    if (isGuestMode) {
+      router.push(`/lessons/${lessonId}`);
+      return;
+    }
+
     const saved = await saveNow();
     if (!saved && !window.confirm("The whiteboard could not save. Leave anyway?")) return;
     router.push(`/lessons/${lessonId}`);
   }
 
   async function closeWhiteboard() {
+    if (isGuestMode) {
+      router.push("/lessons");
+      return;
+    }
+
     const saved = await saveNow();
     if (!saved && !window.confirm("The whiteboard could not save. Leave anyway?")) return;
     router.push("/lessons");
@@ -702,7 +768,13 @@ export function ClassroomEditor({
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-slate-500">
-            {saveStatus === "saving" ? "Saving..." : saveStatus === "error" ? "Save failed" : "Saved"}
+            {saveStatus === "guest"
+              ? "Not saved. Create an account to save your whiteboard."
+              : saveStatus === "saving"
+                ? "Saving..."
+                : saveStatus === "error"
+                  ? "Save failed"
+                  : "Saved"}
           </span>
           <button className="rounded-md p-2 text-slate-600 hover:bg-slate-100" onClick={() => void closeWhiteboard()} aria-label="Close whiteboard" title="Close">
             <X size={20} aria-hidden="true" />
